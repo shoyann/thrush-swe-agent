@@ -1,0 +1,36 @@
+import { clickPageTool } from "@/lib/tools/click-page";
+import { gitInspectTool } from "@/lib/tools/git-inspect";
+import { listFilesTool } from "@/lib/tools/list-files";
+import { readFileTool } from "@/lib/tools/read-file";
+import { readPageTool } from "@/lib/tools/read-page";
+import { replaceTextTool } from "@/lib/tools/replace-text";
+import { safeCommandTool } from "@/lib/tools/safe-command";
+import { searchTextTool } from "@/lib/tools/search-text";
+import { webSearchTool } from "@/lib/tools/web-search";
+import { writeFileTool } from "@/lib/tools/write-file";
+import type { AgentTool } from "@/lib/tools/types";
+
+const tools: AgentTool[] = [
+  clickPageTool,
+  gitInspectTool,
+  listFilesTool,
+  readFileTool,
+  readPageTool,
+  replaceTextTool,
+  safeCommandTool,
+  searchTextTool,
+  webSearchTool,
+  writeFileTool,
+];
+
+export function getTool(name: string) {
+  return tools.find((tool) => tool.name === name);
+}
+
+export function listTools() {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+  }));
+}

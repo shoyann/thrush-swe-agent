@@ -1,0 +1,2 @@
+This is a demo workspace file.
+The first local tool can read files from this folder.
