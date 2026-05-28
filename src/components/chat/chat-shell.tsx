@@ -55,6 +55,34 @@ type AgentErrorEvent = {
   message: string;
 };
 
+async function readBackendErrorMessage(response: Response) {
+  const fallbackMessage = `The backend API returned HTTP ${response.status}.`;
+
+  try {
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { error?: unknown };
+      return typeof payload.error === "string" && payload.error.trim()
+        ? payload.error.trim()
+        : fallbackMessage;
+    }
+
+    const text = (await response.text()).trim();
+    return text || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
+}
+
+function getRequestFailureMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return "The request failed for an unknown reason.";
+}
+
 function parseStreamEvent(rawChunk: string) {
   const dataLine = rawChunk
     .split("\n")
@@ -180,18 +208,23 @@ export function ChatShell() {
       });
 
       if (!response.ok) {
-        throw new Error("The backend API returned an error.");
+        throw new Error(await readBackendErrorMessage(response));
       }
 
       await readAgentStream(response);
-    } catch {
+    } catch (error) {
+      const errorMessage = getRequestFailureMessage(error);
+
       setMessages((current) => [
         ...current,
         {
           id: `assistant-error-${Date.now()}`,
           role: "assistant",
           content:
-            "The chat UI reached the backend path, but the request failed. We will inspect this when the real agent loop is added.",
+            [
+              "The request failed.",
+              errorMessage,
+            ].join("\n"),
         },
       ]);
       setSteps([
@@ -204,7 +237,7 @@ export function ChatShell() {
         {
           id: "think",
           title: "Think",
-          detail: "The backend did not return a usable response.",
+          detail: `The request failed with this reason: ${errorMessage}`,
           status: "done",
         },
         {

@@ -9,6 +9,7 @@ import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_PREVIEW_LENGTH = 12_000;
+const GH_CLI_EXECUTABLE = "C:\\Program Files\\GitHub CLI\\gh.exe";
 
 type GitInspectAction =
   | "check_repo"
@@ -17,7 +18,11 @@ type GitInspectAction =
   | "summary"
   | "github_env"
   | "commit_message"
-  | "pr_draft";
+  | "pr_draft"
+  | "repo_info"
+  | "issue_list"
+  | "issue_detail"
+  | "issue_plan";
 
 type ParsedGitInspectInput =
   | {
@@ -39,9 +44,13 @@ type GitInspectReport = {
   githubReadinessLevel: string | null;
   githubReadinessMissing: string[];
   githubRemoteNames: string[];
+  issueDetail: string | null;
+  issueList: string | null;
+  issuePlan: string | null;
   isGitRepository: boolean;
   message: string;
   prDraftSuggestion: string | null;
+  repoInfo: string | null;
   remoteEntries: string[];
   repositoryRoot: string | null;
   summaryText: string | null;
@@ -61,8 +70,12 @@ function createGitInspectReport(
     | "githubReadinessLevel"
     | "githubReadinessMissing"
     | "githubRemoteNames"
+    | "issueDetail"
+    | "issueList"
+    | "issuePlan"
     | "remoteEntries"
     | "prDraftSuggestion"
+    | "repoInfo"
     | "summaryText"
     | "statusEntries"
   > & {
@@ -74,7 +87,11 @@ function createGitInspectReport(
     githubReadinessLevel?: string | null;
     githubReadinessMissing?: string[];
     githubRemoteNames?: string[];
+    issueDetail?: string | null;
+    issueList?: string | null;
+    issuePlan?: string | null;
     prDraftSuggestion?: string | null;
+    repoInfo?: string | null;
     remoteEntries?: string[];
     summaryText?: string | null;
     statusEntries?: string[];
@@ -89,7 +106,11 @@ function createGitInspectReport(
     githubReadinessLevel: report.githubReadinessLevel ?? null,
     githubReadinessMissing: report.githubReadinessMissing ?? [],
     githubRemoteNames: report.githubRemoteNames ?? [],
+    issueDetail: report.issueDetail ?? null,
+    issueList: report.issueList ?? null,
+    issuePlan: report.issuePlan ?? null,
     prDraftSuggestion: report.prDraftSuggestion ?? null,
+    repoInfo: report.repoInfo ?? null,
     remoteEntries: report.remoteEntries ?? [],
     summaryText: report.summaryText ?? null,
     statusEntries: report.statusEntries ?? [],
@@ -114,6 +135,14 @@ function formatGitInspectReport(report: GitInspectReport) {
     `github_remote_names: ${report.githubRemoteNames.length > 0 ? report.githubRemoteNames.join(", ") : "(none)"}`,
     "message:",
     report.message,
+    "issue_detail:",
+    report.issueDetail ?? "(none)",
+    "issue_list:",
+    report.issueList ?? "(none)",
+    "issue_plan:",
+    report.issuePlan ?? "(none)",
+    "repo_info:",
+    report.repoInfo ?? "(none)",
     "pr_draft_suggestion:",
     report.prDraftSuggestion ?? "(none)",
     "summary_text:",
@@ -136,7 +165,7 @@ function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput 
     return {
       ok: false,
       message:
-        'git_inspect expects object input like {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, or {"action":"pr_draft"}, not a plain string.',
+        'git_inspect expects object input like {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, {"action":"pr_draft"}, {"action":"repo_info"}, {"action":"issue_list"}, {"action":"issue_detail","issue_number":123}, or {"action":"issue_plan","issue_text":"..."}; plain string input is not supported.',
     };
   }
 
@@ -149,13 +178,49 @@ function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput 
     action !== "summary" &&
     action !== "github_env" &&
     action !== "commit_message" &&
-    action !== "pr_draft"
+    action !== "pr_draft" &&
+    action !== "repo_info" &&
+    action !== "issue_list" &&
+    action !== "issue_detail" &&
+    action !== "issue_plan"
   ) {
     return {
       ok: false,
       message:
-        'git_inspect currently allows only {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, or {"action":"pr_draft"} as input.',
+        'git_inspect currently allows only {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, {"action":"pr_draft"}, {"action":"repo_info"}, {"action":"issue_list"}, {"action":"issue_detail"}, or {"action":"issue_plan"} as input.',
     };
+  }
+
+  if (action === "issue_detail") {
+    const issueNumber = input.issue_number;
+
+    if (
+      typeof issueNumber !== "number" ||
+      !Number.isFinite(issueNumber) ||
+      issueNumber <= 0
+    ) {
+      return {
+        ok: false,
+        message:
+          'git_inspect action "issue_detail" requires a positive numeric "issue_number".',
+      };
+    }
+  }
+
+  if (action === "issue_plan") {
+    const issueText = typeof input.issue_text === "string" ? input.issue_text.trim() : "";
+    const issueNumber = input.issue_number;
+
+    const hasValidIssueNumber =
+      typeof issueNumber === "number" && Number.isFinite(issueNumber) && issueNumber > 0;
+
+    if (!issueText && !hasValidIssueNumber) {
+      return {
+        ok: false,
+        message:
+          'git_inspect action "issue_plan" requires either a non-empty "issue_text" string or a positive numeric "issue_number".',
+      };
+    }
   }
 
   return {
@@ -332,7 +397,7 @@ function buildGithubRemoteNames(parsedEntries: ParsedRemoteEntry[]) {
 
 async function checkGhCliAvailability() {
   try {
-    const { stdout, stderr } = await execFileAsync("gh", ["--version"], {
+    const { stdout, stderr } = await execFileAsync(GH_CLI_EXECUTABLE, ["--version"], {
       cwd: getWorkspaceRoot(),
       maxBuffer: 1024 * 1024,
       windowsHide: true,
@@ -384,7 +449,7 @@ async function checkGhAuthStatus(ghCliAvailable: boolean) {
 
   try {
     const { stdout, stderr } = await execFileAsync(
-      "gh",
+      GH_CLI_EXECUTABLE,
       ["auth", "status", "--hostname", "github.com"],
       {
         cwd: getWorkspaceRoot(),
@@ -665,6 +730,192 @@ function suggestPrDraft(
   bodyLines.push("- Not run yet");
 
   return [title, "", ...bodyLines].join("\n");
+}
+
+function formatIssueList(
+  issues: Array<{
+    number?: number | null;
+    state?: string | null;
+    title?: string | null;
+    url?: string | null;
+  }>,
+) {
+  if (issues.length === 0) {
+    return "No issues found in the current GitHub repository.";
+  }
+
+  return issues
+    .map((issue) =>
+      [
+        `#${issue.number ?? "?"} [${(issue.state ?? "unknown").toUpperCase()}] ${issue.title ?? "(untitled)"}`,
+        `url: ${issue.url ?? "(unknown)"}`,
+      ].join("\n"),
+    )
+    .join("\n\n");
+}
+
+function formatIssueDetail(issue: {
+  body?: string | null;
+  number?: number | null;
+  state?: string | null;
+  title?: string | null;
+  url?: string | null;
+}) {
+  return [
+    `#${issue.number ?? "?"} [${(issue.state ?? "unknown").toUpperCase()}] ${issue.title ?? "(untitled)"}`,
+    `url: ${issue.url ?? "(unknown)"}`,
+    "body:",
+    issue.body?.trim() || "(empty)",
+  ].join("\n");
+}
+
+function dedupeStrings(values: string[]) {
+  return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function normalizeIssueSentence(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function extractIssueTitleAndBody(issueText: string) {
+  const normalizedText = issueText.replace(/\r\n/g, "\n").trim();
+
+  if (!normalizedText) {
+    return {
+      body: "",
+      title: "Untitled issue",
+    };
+  }
+
+  const formattedIssueMatch = normalizedText.match(
+    /^#\d+\s+\[[A-Z]+\]\s+([^\n]+)\n(?:url:\s+[^\n]+\n)?body:\n([\s\S]*)$/i,
+  );
+
+  if (formattedIssueMatch) {
+    return {
+      title: normalizeIssueSentence(formattedIssueMatch[1] ?? "") || "Untitled issue",
+      body: (formattedIssueMatch[2] ?? "").trim(),
+    };
+  }
+
+  const nonEmptyLines = normalizedText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (nonEmptyLines.length === 1) {
+    return {
+      title: normalizeIssueSentence(nonEmptyLines[0]) || "Untitled issue",
+      body: "",
+    };
+  }
+
+  const firstLine = nonEmptyLines[0]?.replace(/^#+\s*/, "") ?? "";
+  const remainingBody = normalizedText
+    .split("\n")
+    .slice(1)
+    .join("\n")
+    .trim();
+
+  return {
+    title: normalizeIssueSentence(firstLine) || "Untitled issue",
+    body: remainingBody,
+  };
+}
+
+function extractIssuePaths(issueText: string) {
+  const matches = issueText.match(
+    /(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.[A-Za-z0-9]+|[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|css|scss|html)/g,
+  );
+
+  return dedupeStrings(
+    (matches ?? [])
+      .map((value) => value.trim().replace(/^`|`$/g, ""))
+      .filter((value) => value.length > 0),
+  ).slice(0, 6);
+}
+
+function extractIssueKeywords(title: string, body: string) {
+  const combined = `${title}\n${body}`;
+  const englishTokens = combined.match(/[A-Za-z][A-Za-z0-9_-]{2,}/g) ?? [];
+  const chineseTokens = combined.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
+  const stopWords = new Set([
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "when",
+    "have",
+    "should",
+    "issue",
+    "github",
+    "please",
+    "after",
+    "before",
+    "into",
+  ]);
+
+  return dedupeStrings(
+    [...englishTokens, ...chineseTokens]
+      .map((token) => token.trim())
+      .filter((token) => {
+        if (/^[A-Za-z]/.test(token)) {
+          return !stopWords.has(token.toLowerCase());
+        }
+
+        return token.length >= 2;
+      }),
+  ).slice(0, 6);
+}
+
+function pickIssueGoal(title: string, body: string) {
+  const firstBodyLine = body
+    .split(/\n+/)
+    .map((line) => normalizeIssueSentence(line.replace(/^[-*]\s*/, "")))
+    .find((line) => line.length > 0);
+
+  return firstBodyLine && firstBodyLine !== title ? `${title} - ${firstBodyLine}` : title;
+}
+
+function buildIssuePlan(issueText: string) {
+  const { title, body } = extractIssueTitleAndBody(issueText);
+  const candidatePaths = extractIssuePaths(issueText);
+  const keywords = extractIssueKeywords(title, body);
+  const goal = pickIssueGoal(title, body);
+  const fileLines =
+    candidatePaths.length > 0
+      ? candidatePaths.map((filePath) => `- ${filePath}`)
+      : [
+          "- Issue text里没有点名具体文件。",
+          `- 建议先用 search_text 搜这些关键词：${keywords.join(" / ") || "关键报错、页面名、函数名"}`,
+        ];
+  const firstStepLine =
+    candidatePaths.length > 0
+      ? `- 先读这些文件，确认问题发生点：${candidatePaths.slice(0, 3).join(", ")}`
+      : `- 先用 search_text 在代码里定位关键词，再决定改哪个文件：${keywords.join(", ") || "关键报错、页面名、函数名"}`;
+
+  return [
+    `Issue goal: ${goal}`,
+    "",
+    "Possible related files or modules:",
+    ...fileLines,
+    "",
+    "Recommended first step:",
+    firstStepLine,
+    "- 读到相关代码后，再把改动范围收窄到 1 到 3 个文件。",
+    "",
+    "Validation plan:",
+    "- 先重现 issue 里描述的问题，记住修改前是什么表现。",
+    "- 改完后重新走一遍同样步骤，确认问题消失且没有带出新问题。",
+    "- 至少跑一次 npm run build，确认项目还能正常构建。",
+    "",
+    "Scope notes:",
+    "- 第一版先做最小修复，不顺手改无关模块。",
+    `- 当前规划关键词：${keywords.join(", ") || "(need manual triage)"}`,
+  ].join("\n");
 }
 
 function summarizeGitChanges(
@@ -1233,6 +1484,613 @@ async function runPrDraftAction(): Promise<ToolResult> {
   }
 }
 
+async function runRepoInfoAction(): Promise<ToolResult> {
+  const workspaceRoot = getWorkspaceRoot();
+  const ghCli = await checkGhCliAvailability();
+  const ghAuth = await checkGhAuthStatus(ghCli.available);
+
+  try {
+    const repositoryRoot = await getRepositoryRoot(workspaceRoot);
+    const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
+      cwd: workspaceRoot,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    const { parsedEntries, remoteEntries } = parseGitRemoteEntries(remoteStdout);
+    const githubRemoteNames = buildGithubRemoteNames(parsedEntries);
+
+    if (!ghCli.available) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "repo_info",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: false,
+            githubRemoteNames,
+            isGitRepository: true,
+            message: "Repository info could not be loaded because gh CLI is not available.",
+            remoteEntries,
+            repoInfo: "gh CLI is not installed, so GitHub repository info cannot be read here yet.",
+            repositoryRoot,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const { stdout } = await execFileAsync(
+      GH_CLI_EXECUTABLE,
+      ["repo", "view", "--json", "nameWithOwner,url,defaultBranchRef,description"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+
+    const parsed = JSON.parse(stdout) as {
+      defaultBranchRef?: { name?: string | null } | null;
+      description?: string | null;
+      nameWithOwner?: string | null;
+      url?: string | null;
+    };
+
+    const repoInfo = [
+      `name_with_owner: ${parsed.nameWithOwner ?? "(unknown)"}`,
+      `url: ${parsed.url ?? "(unknown)"}`,
+      `default_branch: ${parsed.defaultBranchRef?.name || "(unknown)"}`,
+      `description: ${parsed.description?.trim() || "(empty)"}`,
+    ].join("\n");
+
+    return {
+      ok: true,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "repo_info",
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          githubRemoteNames,
+          isGitRepository: true,
+          message: "GitHub repository info loaded successfully.",
+          remoteEntries,
+          repoInfo,
+          repositoryRoot,
+          status: "success",
+          workspaceRoot,
+        }),
+      ),
+    };
+  } catch (error) {
+    if (isNotGitRepositoryError(error)) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "repo_info",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: ghCli.available,
+            isGitRepository: false,
+            message:
+              "Repository info is not available because the current workspace is not a Git repository yet.",
+            repoInfo:
+              "No repository info is available because this workspace is not a Git repository yet.",
+            repositoryRoot: null,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const message =
+      (error as { message?: string })?.message ??
+      "git_inspect failed while reading GitHub repository info.";
+
+    return {
+      ok: false,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "repo_info",
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          isGitRepository: true,
+          message,
+          repoInfo:
+            (error as { stderr?: string })?.stderr?.trim() ||
+            (error as { stdout?: string })?.stdout?.trim() ||
+            null,
+          repositoryRoot: null,
+          status: "failed",
+          workspaceRoot,
+        }),
+      ),
+    };
+  }
+}
+
+async function runIssueListAction(): Promise<ToolResult> {
+  const workspaceRoot = getWorkspaceRoot();
+  const ghCli = await checkGhCliAvailability();
+  const ghAuth = await checkGhAuthStatus(ghCli.available);
+
+  try {
+    const repositoryRoot = await getRepositoryRoot(workspaceRoot);
+    const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
+      cwd: workspaceRoot,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    const { parsedEntries, remoteEntries } = parseGitRemoteEntries(remoteStdout);
+    const githubRemoteNames = buildGithubRemoteNames(parsedEntries);
+
+    if (!ghCli.available) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_list",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: false,
+            githubRemoteNames,
+            isGitRepository: true,
+            issueList: "gh CLI is not installed, so GitHub issues cannot be listed here yet.",
+            message: "Issue list is unavailable because gh CLI is not available.",
+            remoteEntries,
+            repositoryRoot,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    if (ghAuth.status !== "authenticated") {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_list",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: ghCli.available,
+            githubRemoteNames,
+            isGitRepository: true,
+            issueList: "gh CLI is installed, but GitHub login is not active, so issues cannot be listed here yet.",
+            message: "Issue list is unavailable because GitHub login is not active.",
+            remoteEntries,
+            repositoryRoot,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const { stdout } = await execFileAsync(
+      GH_CLI_EXECUTABLE,
+      ["issue", "list", "--limit", "10", "--json", "number,title,state,url"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+
+    const issues = JSON.parse(stdout) as Array<{
+      number?: number | null;
+      state?: string | null;
+      title?: string | null;
+      url?: string | null;
+    }>;
+
+    return {
+      ok: true,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "issue_list",
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          githubRemoteNames,
+          isGitRepository: true,
+          issueList: formatIssueList(issues),
+          message: "GitHub issue list loaded successfully.",
+          remoteEntries,
+          repositoryRoot,
+          status: "success",
+          workspaceRoot,
+        }),
+      ),
+    };
+  } catch (error) {
+    if (isNotGitRepositoryError(error)) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_list",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: ghCli.available,
+            isGitRepository: false,
+            issueList:
+              "No issue list is available because this workspace is not a Git repository yet.",
+            message:
+              "Issue list is not available because the current workspace is not a Git repository yet.",
+            repositoryRoot: null,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const message =
+      (error as { message?: string })?.message ??
+      "git_inspect failed while reading the GitHub issue list.";
+
+    return {
+      ok: false,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "issue_list",
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          isGitRepository: true,
+          issueList:
+            (error as { stderr?: string })?.stderr?.trim() ||
+            (error as { stdout?: string })?.stdout?.trim() ||
+            null,
+          message,
+          repositoryRoot: null,
+          status: "failed",
+          workspaceRoot,
+        }),
+      ),
+    };
+  }
+}
+
+async function runIssueDetailAction(input: ToolExecutionInput): Promise<ToolResult> {
+  const workspaceRoot = getWorkspaceRoot();
+  const ghCli = await checkGhCliAvailability();
+  const ghAuth = await checkGhAuthStatus(ghCli.available);
+  const issueNumber =
+    typeof input === "string" ? null : typeof input.issue_number === "number"
+      ? input.issue_number
+      : null;
+
+  try {
+    const repositoryRoot = await getRepositoryRoot(workspaceRoot);
+    const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
+      cwd: workspaceRoot,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    const { parsedEntries, remoteEntries } = parseGitRemoteEntries(remoteStdout);
+    const githubRemoteNames = buildGithubRemoteNames(parsedEntries);
+
+    if (issueNumber === null || issueNumber <= 0) {
+      return {
+        ok: false,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_detail",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: ghCli.available,
+            githubRemoteNames,
+            isGitRepository: true,
+            issueDetail:
+              "Missing issue number. Please provide a specific issue number such as issue 3.",
+            message: "Issue detail is unavailable because no valid issue number was provided.",
+            remoteEntries,
+            repositoryRoot,
+            status: "rejected",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    if (!ghCli.available) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_detail",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: false,
+            githubRemoteNames,
+            isGitRepository: true,
+            issueDetail: "gh CLI is not installed, so GitHub issue detail cannot be read here yet.",
+            message: "Issue detail is unavailable because gh CLI is not available.",
+            remoteEntries,
+            repositoryRoot,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    if (ghAuth.status !== "authenticated") {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_detail",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: ghCli.available,
+            githubRemoteNames,
+            isGitRepository: true,
+            issueDetail:
+              "gh CLI is installed, but GitHub login is not active, so issue detail cannot be read here yet.",
+            message: "Issue detail is unavailable because GitHub login is not active.",
+            remoteEntries,
+            repositoryRoot,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const { stdout } = await execFileAsync(
+      GH_CLI_EXECUTABLE,
+      [
+        "issue",
+        "view",
+        String(issueNumber),
+        "--json",
+        "number,title,state,url,body",
+      ],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+
+    const issue = JSON.parse(stdout) as {
+      body?: string | null;
+      number?: number | null;
+      state?: string | null;
+      title?: string | null;
+      url?: string | null;
+    };
+
+    return {
+      ok: true,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "issue_detail",
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          githubRemoteNames,
+          isGitRepository: true,
+          issueDetail: formatIssueDetail(issue),
+          message: `GitHub issue #${issueNumber} loaded successfully.`,
+          remoteEntries,
+          repositoryRoot,
+          status: "success",
+          workspaceRoot,
+        }),
+      ),
+    };
+  } catch (error) {
+    if (isNotGitRepositoryError(error)) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_detail",
+            ghAuthStatus: ghAuth.status,
+            ghCliAvailable: ghCli.available,
+            isGitRepository: false,
+            issueDetail:
+              "No issue detail is available because this workspace is not a Git repository yet.",
+            message:
+              "Issue detail is not available because the current workspace is not a Git repository yet.",
+            repositoryRoot: null,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const message =
+      (error as { message?: string })?.message ??
+      "git_inspect failed while reading the GitHub issue detail.";
+
+    return {
+      ok: false,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "issue_detail",
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          isGitRepository: true,
+          issueDetail:
+            (error as { stderr?: string })?.stderr?.trim() ||
+            (error as { stdout?: string })?.stdout?.trim() ||
+            null,
+          message,
+          repositoryRoot: null,
+          status: "failed",
+          workspaceRoot,
+        }),
+      ),
+    };
+  }
+}
+
+async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult> {
+  const workspaceRoot = getWorkspaceRoot();
+  const ghCli = await checkGhCliAvailability();
+  const ghAuth = await checkGhAuthStatus(ghCli.available);
+  const issueTextFromInput =
+    typeof input === "string" ? "" : typeof input.issue_text === "string" ? input.issue_text : "";
+  const issueNumber =
+    typeof input === "string" ? null : typeof input.issue_number === "number"
+      ? input.issue_number
+      : null;
+
+  let issueText = issueTextFromInput.trim();
+
+  if (!issueText && (issueNumber === null || issueNumber <= 0)) {
+    return {
+      ok: false,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "issue_plan",
+          isGitRepository: false,
+          issuePlan:
+            'Missing issue content. Please pass {"action":"issue_plan","issue_text":"..."} or {"action":"issue_plan","issue_number":3}.',
+          message:
+            "Issue planning is unavailable because neither issue_text nor a valid issue_number was provided.",
+          repositoryRoot: null,
+          status: "rejected",
+          workspaceRoot,
+        }),
+      ),
+    };
+  }
+
+  let repositoryRoot: string | null = null;
+  let isGitRepository = false;
+  let githubRemoteNames: string[] = [];
+  let remoteEntries: string[] = [];
+
+  try {
+    repositoryRoot = await getRepositoryRoot(workspaceRoot);
+    isGitRepository = true;
+
+    if (!issueText && issueNumber !== null && issueNumber > 0) {
+      const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      });
+      const parsedRemotes = parseGitRemoteEntries(remoteStdout);
+      remoteEntries = parsedRemotes.remoteEntries;
+      githubRemoteNames = buildGithubRemoteNames(parsedRemotes.parsedEntries);
+
+      if (!ghCli.available) {
+        return {
+          ok: true,
+          content: formatGitInspectReport(
+            createGitInspectReport({
+              action: "issue_plan",
+              ghAuthStatus: ghAuth.status,
+              ghCliAvailable: false,
+              githubRemoteNames,
+              isGitRepository: true,
+              issuePlan:
+                "gh CLI is not installed, so issue number planning is not available yet. You can still paste the issue text directly into issue_text.",
+              message: "Issue planning from issue number is unavailable because gh CLI is not available.",
+              remoteEntries,
+              repositoryRoot,
+              status: "success",
+              workspaceRoot,
+            }),
+          ),
+        };
+      }
+
+      if (ghAuth.status !== "authenticated") {
+        return {
+          ok: true,
+          content: formatGitInspectReport(
+            createGitInspectReport({
+              action: "issue_plan",
+              ghAuthStatus: ghAuth.status,
+              ghCliAvailable: ghCli.available,
+              githubRemoteNames,
+              isGitRepository: true,
+              issuePlan:
+                "GitHub login is not active, so issue number planning is not available yet. You can still paste the issue text directly into issue_text.",
+              message:
+                "Issue planning from issue number is unavailable because GitHub login is not active.",
+              remoteEntries,
+              repositoryRoot,
+              status: "success",
+              workspaceRoot,
+            }),
+          ),
+        };
+      }
+
+      const { stdout } = await execFileAsync(
+        GH_CLI_EXECUTABLE,
+        [
+          "issue",
+          "view",
+          String(issueNumber),
+          "--json",
+          "number,title,state,url,body",
+        ],
+        {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        },
+      );
+
+      const issue = JSON.parse(stdout) as {
+        body?: string | null;
+        number?: number | null;
+        state?: string | null;
+        title?: string | null;
+        url?: string | null;
+      };
+
+      issueText = formatIssueDetail(issue);
+    }
+  } catch (error) {
+    if (!isNotGitRepositoryError(error)) {
+      const message =
+        (error as { message?: string })?.message ??
+        "git_inspect failed while checking repository state for issue planning.";
+
+      return {
+        ok: false,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "issue_plan",
+            isGitRepository: false,
+            message,
+            repositoryRoot: null,
+            status: "failed",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+  }
+
+  return {
+    ok: true,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "issue_plan",
+          isGitRepository,
+          ghAuthStatus: ghAuth.status,
+          ghCliAvailable: ghCli.available,
+          githubRemoteNames,
+          issuePlan: buildIssuePlan(issueText),
+          message:
+            issueNumber !== null && issueNumber > 0
+              ? `Issue planning draft created successfully from GitHub issue #${issueNumber}.`
+              : "Issue planning draft created successfully from pasted issue text.",
+          remoteEntries,
+          repositoryRoot,
+          status: "success",
+          workspaceRoot,
+      }),
+    ),
+  };
+}
+
 async function executeGitInspect(input: ToolExecutionInput): Promise<ToolResult> {
   const parsed = parseGitInspectInput(input);
 
@@ -1276,20 +2134,46 @@ async function executeGitInspect(input: ToolExecutionInput): Promise<ToolResult>
     return runCommitMessageAction();
   }
 
-  return runPrDraftAction();
+  if (parsed.action === "pr_draft") {
+    return runPrDraftAction();
+  }
+
+  if (parsed.action === "repo_info") {
+    return runRepoInfoAction();
+  }
+
+  if (parsed.action === "issue_list") {
+    return runIssueListAction();
+  }
+
+  if (parsed.action === "issue_detail") {
+    return runIssueDetailAction(input);
+  }
+
+  return runIssuePlanAction(input);
 }
 
 export const gitInspectTool: AgentTool = {
   name: "git_inspect",
   description:
-    "Check Git and GitHub environment facts for the current workspace. MVP actions: detect whether the workspace is inside a Git repository, read git status, read a minimal git diff preview, produce a short local change summary, inspect GitHub readiness such as remotes and gh CLI availability, suggest a commit message draft, and suggest a PR draft description.",
+    "Check Git and GitHub environment facts for the current workspace. MVP actions: detect whether the workspace is inside a Git repository, read git status, read a minimal git diff preview, produce a short local change summary, inspect GitHub readiness such as remotes and gh CLI availability, suggest a commit message draft, suggest a PR draft description, read basic GitHub repository info, list repository issues, read one issue detail, and turn either pasted issue text or one GitHub issue number into a minimal execution plan.",
   inputSchema: {
     type: "object",
     properties: {
       action: {
         type: "string",
         description:
-          'Required Git inspection action. Current MVP supports "check_repo", "status", "diff", "summary", "github_env", "commit_message", or "pr_draft".',
+          'Required Git inspection action. Current MVP supports "check_repo", "status", "diff", "summary", "github_env", "commit_message", "pr_draft", "repo_info", "issue_list", "issue_detail", or "issue_plan".',
+      },
+      issue_number: {
+        type: "number",
+        description:
+          'Required when action is "issue_detail". Optional when action is "issue_plan". The GitHub issue number to inspect or plan from, such as 3.',
+      },
+      issue_text: {
+        type: "string",
+        description:
+          'Optional when action is "issue_plan". Paste the issue text here so the tool can draft a minimal code-change plan without reading GitHub first.',
       },
     },
     required: ["action"],

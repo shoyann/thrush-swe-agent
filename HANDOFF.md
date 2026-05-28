@@ -6,189 +6,200 @@ Mini Codex MVP in:
 
 `C:\Users\Administrator\Documents\Codex\2026-05-26\vibe-coding-swe-agent`
 
-Goal: build a stripped-down Codex-style SWE agent step by step, in a way a non-technical user can follow.
+Goal: build a stripped-down Codex-style SWE agent that stays understandable while still using a real backend loop and real tools.
+
+## Current State
+
+This is no longer a mock-agent stage project.
+
+The app already has:
+
+- a real chat page
+- a real backend route at `POST /api/agent`
+- streaming step updates with SSE
+- a real `runAgent()` loop in `src/lib/agent/run-agent.ts`
+- real tool registration and execution
+- draft-based file writing with explicit approval
 
 ## What Is Done
 
-### 1. Project skeleton
+### 1. Frontend chat shell
 
-Created the main folders:
-
-- `src/app`
-- `src/app/api/agent`
-- `src/components/chat`
-- `src/lib/agent`
-- `src/lib/tools`
-- `src/lib/search`
-- `src/types`
-- `public`
-- `data/workspace`
-
-### 2. Next.js app shell
-
-Set up:
-
-- `package.json`
-- `tsconfig.json`
-- `next.config.ts`
-- `next-env.d.ts`
-- `.gitignore`
-- base app layout and CSS
-
-Build passes with:
-
-```powershell
-npm run build
-```
-
-### 3. Chat UI MVP
-
-Built a basic chat interface:
-
-- task input box
-- send button
-- chat message list
-- right-side trace panel for `Perceive -> Think -> Act`
-
-Main files:
+Main file:
 
 - `src/components/chat/chat-shell.tsx`
-- `src/app/page.tsx`
-- `src/app/globals.css`
 
-### 4. Backend API path
+Current UI behavior:
 
-Connected the frontend to a real backend route:
+- user can type a task and send it
+- frontend sends the request to `/api/agent`
+- frontend reads streamed `steps`, `message`, and `done` events
+- frontend shows a step trace beside the chat
+- frontend shows YES / NO buttons when a pending draft exists
 
-- `POST /api/agent`
+### 2. Backend API route
 
-Main files:
+Main file:
 
 - `src/app/api/agent/route.ts`
-- `src/lib/agent/mock-agent.ts`
-- `src/types/agent.ts`
 
 Current behavior:
 
-- frontend sends task to `/api/agent`
-- backend returns a mock assistant message
-- backend also returns 3 mock steps
-- frontend renders both
+- validates request JSON
+- rejects empty tasks
+- supports normal JSON response mode
+- supports streaming SSE mode
+- calls `runAgent(task, messages, sessionContext, options)`
+
+### 3. Real agent loop
+
+Main file:
+
+- `src/lib/agent/run-agent.ts`
+
+Current behavior:
+
+- normalizes task and recent conversation
+- keeps lightweight session context
+- emits `Perceive -> Think -> Act` steps
+- can answer directly or choose tools
+- supports up to 4 tool calls per task
+- formats final answers from model text or tool results
+
+### 4. Tool system
+
+Registry file:
+
+- `src/lib/tools/tool-registry.ts`
+
+Current registered tools:
+
+- `click_page`
+- `git_inspect`
+- `list_files`
+- `read_file`
+- `read_page`
+- `replace_text`
+- `safe_command`
+- `search_text`
+- `web_search`
+- `write_file`
+
+### 5. File draft safety gate
+
+Main files:
+
+- `src/lib/tools/write-file.ts`
+- `src/lib/tools/replace-text.ts`
+- `src/lib/tools/pending-write.ts`
+
+Current behavior:
+
+- file writes do not hit disk immediately
+- write requests become drafts first
+- drafts can be approved or canceled
+- backend only writes after explicit approval
+- ambiguous confirmations are intentionally rejected
+
+### 6. Workspace boundary
+
+Main file:
+
+- `src/lib/tools/workspace-path.ts`
+
+Current behavior:
+
+- defaults to `data/workspace`
+- can switch to a real folder with `AGENT_WORKSPACE_ROOT`
+- rejects paths outside the configured workspace
+- returns clear errors for missing or invalid workspace roots
+
+### 7. Model connection
+
+Current model wiring:
+
+- SDK: `openai`
+- API key env: `DEEPSEEK_API_KEY`
+- base URL env: `DEEPSEEK_BASE_URL`
+- model env: `DEEPSEEK_MODEL`
+
+If `DEEPSEEK_API_KEY` is missing, the real loop fails early on purpose.
 
 ## Current Architecture
 
-Very simple version right now:
-
-1. User types a task in the browser
-2. Frontend sends `{ task }` to `/api/agent`
-3. API route calls `runMockAgent(task)`
-4. Mock agent returns:
-   - one assistant message
-   - one array of steps
-5. Frontend displays both
-
-This means the request path is real, but the agent brain is still fake.
-
-## How To Run
-
-From the project folder:
-
-```powershell
-npm install
-npm run dev
-```
-
-Then open:
-
-- `http://127.0.0.1:3000`
-- or `http://localhost:3000`
+1. User types a task in the browser.
+2. Frontend sends `{ task, messages, sessionContext, stream: true }` to `/api/agent`.
+3. API route calls `runAgent(...)`.
+4. Agent emits step updates.
+5. Agent may call tools.
+6. Agent returns either:
+   - a direct answer
+   - a tool-backed answer
+   - or a draft awaiting approval
+7. Frontend updates chat, trace panel, and draft controls.
 
 ## Files That Matter Most
 
-- `src/components/chat/chat-shell.tsx`
-  Frontend chat UI and request sending
+- `src/lib/agent/run-agent.ts`
+  Real agent loop and tool-planning logic
 
 - `src/app/api/agent/route.ts`
-  Backend API entry
+  Backend entry and streaming response logic
 
-- `src/lib/agent/mock-agent.ts`
-  Temporary fake agent logic
+- `src/components/chat/chat-shell.tsx`
+  Frontend request flow, streaming reader, and draft approval UI
+
+- `src/lib/tools/tool-registry.ts`
+  Single source of truth for available tools
+
+- `src/lib/tools/pending-write.ts`
+  Pending draft storage and final write application
 
 - `src/types/agent.ts`
-  Shared request/response/message/step shapes
-
-- `src/app/globals.css`
-  Current UI styling
+  Shared message, step, request, response, and session shapes
 
 ## What Has Been Verified
 
-- `npm install` completed
-- `npm run build` completed successfully
-- local API request to `http://127.0.0.1:3000/api/agent` returned valid JSON
-- user confirmed page could be opened manually
-
-## Important Constraints From The User
-
-Keep working in very small steps.
-
-For each step:
-
-- finish one feature only
-- stop and explain in very plain language
-- explain new technical words with a life analogy first
-- say clearly what the next step is
-
-Do not jump too far ahead.
-
-## Next Recommended Step
-
-Replace `mock-agent.ts` with a real agent loop skeleton.
-
-That next step should still stay minimal:
-
-1. Add a real `perceive -> think -> act` function structure
-2. Keep model output fake for now if needed
-3. Separate the loop into explicit stages in code
-4. Return richer step data from that loop
-
-The goal of the next step is not real tools yet.
-The goal is to make the backend code structure look like an actual agent.
-
-## After That
-
-Suggested order after the next step:
-
-1. real agent loop skeleton
-2. streaming or pseudo-real-time step updates
-3. OpenAI API call
-4. tool registry
-5. file read/write tool
-6. safe command tool
-7. web search tool
-8. tool-use decision logic
+- `npm install` completed earlier in the project
+- `npm run build` passed successfully on 2026-05-28
+- current route structure compiles with Next.js production build
+- tool registry is wired to the backend loop
+- streaming route code is present and connected
 
 ## Known Gaps
 
-- no real LLM call yet
-- no real tool use yet
-- no streaming updates yet
-- no persistence or memory yet
-- no command safety policy yet
-- no env var setup for API keys yet
+- no formal test suite is checked into the repo
+- `package.json` has no `test` script
+- pending draft state is in memory, not persistent storage
+- no user accounts, auth, or database
+- docs may drift if they are not updated after feature work
+- some root log files may be locked by running local processes
+
+## Recommended Next Steps
+
+1. Add the smallest possible automated tests.
+   Start with `run-agent.ts`, `write-file.ts`, `replace-text.ts`, and `safe-command.ts`.
+
+2. Improve draft review UX.
+   Show a clearer before/after diff instead of only raw draft text.
+
+3. Persist draft and session state.
+   Right now a server restart can break pending draft flow.
+
+4. Tighten error structure.
+   Several failures still come back mainly as plain text.
+
+5. Decide whether this stays a teaching demo or becomes a more product-like app.
+   That decision changes how much auth, storage, and deployment work should be added.
 
 ## Suggested Prompt For The Next Thread
 
-Use this as the first message in the new thread:
-
 ```text
 Read HANDOFF.md and continue from the current state.
-Do not redo completed work.
-Follow the existing workflow:
-1. only implement one small feature at a time
-2. after each feature, stop and explain in very plain Chinese
-3. explain any new technical term with a life analogy first
-4. always tell me what the next step is
+Do not revert existing work.
+Keep changes small and explain them clearly.
 
-Now do the next recommended step from HANDOFF.md:
-replace the mock agent with a real perceive -> think -> act loop skeleton, but keep it minimal and runnable.
+First, inspect the current code and confirm the real agent loop, tool registry, and draft approval flow.
+Then do exactly one next improvement:
+add the smallest useful automated test coverage for the current tool and agent flow.
 ```

@@ -796,6 +796,68 @@ function deriveDirectSafeCommandToolCall(task: string): DirectToolPlan | null {
 
 function deriveDirectGitInspectToolCall(task: string): DirectToolPlan | null {
   const cleanTask = task.trim();
+  const asksForIssuePlan =
+    /(issue\s*(计划|施工单|execution\s*plan)|执行计划|改代码计划|施工单)/i.test(cleanTask);
+  const issueDetailMatch =
+    cleanTask.match(/\bissue\s+#?(\d+)\b/i) ||
+    cleanTask.match(/issue\s*详情\s*#?(\d+)/i) ||
+    cleanTask.match(/第\s*(\d+)\s*个\s*issue/i) ||
+    cleanTask.match(/issue\s*(\d+)/i);
+
+  if (asksForIssuePlan && issueDetailMatch?.[1]) {
+    return {
+      id: createSyntheticToolCallId(),
+      name: "git_inspect",
+      input: {
+        action: "issue_plan",
+        issue_number: Number(issueDetailMatch[1]),
+      },
+    };
+  }
+
+  if (issueDetailMatch?.[1]) {
+    return {
+      id: createSyntheticToolCallId(),
+      name: "git_inspect",
+      input: {
+        action: "issue_detail",
+        issue_number: Number(issueDetailMatch[1]),
+      },
+    };
+  }
+
+  const asksForIssueList =
+    /\bissues?\b/i.test(cleanTask) ||
+    /(issue 列表|issues 列表|当前 issue|仓库 issue|待办单|问题列表)/i.test(
+      cleanTask,
+    );
+
+  if (asksForIssueList) {
+    return {
+      id: createSyntheticToolCallId(),
+      name: "git_inspect",
+      input: {
+        action: "issue_list",
+      },
+    };
+  }
+
+  const asksForRepoInfo =
+    /\brepo\b/i.test(cleanTask) ||
+    /(仓库信息|当前仓库|repo info|repository info|仓库详情|github 仓库信息)/i.test(
+      cleanTask,
+    );
+
+  if (asksForRepoInfo) {
+    return {
+      id: createSyntheticToolCallId(),
+      name: "git_inspect",
+      input: {
+        action: "repo_info",
+      },
+    };
+  }
+
   const asksForPrDraft =
     /\bpr\b/i.test(cleanTask) ||
     /(pr 草稿|pull request|拉取请求|合并申请|pr 文案|pr draft|帮我写 pr)/i.test(
@@ -1655,6 +1717,10 @@ async function think(
             "If the user asks to open a web page, inspect a URL, or read page content from a live site, prefer read_page.",
             "If the user asks to click one simple link, button, or tab on a live page, prefer click_page.",
             "If the user asks whether the current workspace is a Git repository, prefer git_inspect with action check_repo.",
+            "If the user asks for one specific issue detail, prefer git_inspect with action issue_detail and include the issue_number.",
+            'If the user asks you to turn an issue into an execution plan, prefer git_inspect with action issue_plan. Pass pasted issue text in issue_text, or pass issue_number when the user names one GitHub issue number.',
+            "If the user asks for the current repository issue list, prefer git_inspect with action issue_list.",
+            "If the user asks for current GitHub repository info, prefer git_inspect with action repo_info.",
             "If the user asks for a PR draft suggestion, prefer git_inspect with action pr_draft.",
             "If the user asks for a commit message suggestion, prefer git_inspect with action commit_message.",
             "If the user asks whether the workspace is connected to GitHub, or asks about remotes, GitHub remotes, gh CLI, or GitHub login readiness, prefer git_inspect with action github_env.",
