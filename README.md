@@ -1,60 +1,52 @@
-# Mini Codex MVP
+# Thrush
 
-This project is a stripped-down Codex-style SWE agent built with Next.js.
+Thrush is a lightweight SWE agent workspace built with Next.js.
 
-It already has four connected parts:
+It is designed as a small but real coding agent:
 
-1. a chat UI
-2. a backend API route
-3. a real `Perceive -> Think -> Act` agent loop
-4. a local tool system with safety gates
+- browser chat UI
+- backend agent loop
+- streaming step trace
+- local tool calling
+- draft-based file write approval
 
-## What It Can Do Now
+This repo is not a mock shell anymore. The agent can already plan, call tools, inspect code, prepare edits, and return step-by-step output in the UI.
 
-- show a chat interface with a visible step trace
-- send tasks from the browser to `POST /api/agent`
-- stream agent step updates back to the UI with Server-Sent Events
-- call a real model through the OpenAI-compatible SDK
-- decide whether to answer directly or use a tool
-- read files, search text, and prepare file-change drafts
-- require explicit approval before any file write reaches disk
-- run a very small allowlist of local commands
-- read live web pages, click simple page elements, and search the public web
-- inspect Git and some GitHub environment details
+## What Thrush Does
 
-## Tech Stack
+Thrush currently supports:
 
-- Next.js 15
-- React 19
-- TypeScript
-- OpenAI Node SDK
-- DeepSeek-compatible API base URL
-- Playwright
+- sending tasks from the browser to `POST /api/agent`
+- streaming `Perceive -> Think -> Act` events back to the UI
+- deciding between direct answers and tool use
+- reading files and searching text inside a workspace
+- preparing file-write and replace-text drafts before touching disk
+- requiring explicit approval for writes
+- running a small allowlist of local commands
+- reading live pages and clicking simple page elements with Playwright
+- searching the public web
+- inspecting Git and basic GitHub state
+- turning GitHub issue detail into a structured execution plan
 
-## Project Shape
+## Product Shape
 
-- `src/app`
-  App pages, layout, global CSS, and API routes
+The current app is built from four connected layers:
 
-- `src/app/api/agent`
-  Backend route that validates requests and calls `runAgent`
+1. `src/components/chat`
+   The browser chat shell, message feed, draft approval UI, and streamed step rendering.
 
-- `src/components/chat`
-  Chat UI, message list, step trace, and draft approval buttons
+2. `src/app/api/agent/route.ts`
+   The backend route that validates input and runs the agent loop.
 
-- `src/lib/agent`
-  Main agent loop and planning flow
+3. `src/lib/agent/run-agent.ts`
+   The main agent brain. This is where planning, tool choice, and response assembly happen.
 
-- `src/lib/tools`
-  Tool registry plus all local tools
-
-- `src/types`
-  Shared request, response, message, step, and session types
-
-- `data/workspace`
-  Default demo workspace for file tools when no real project folder is configured
+4. `src/lib/tools`
+   The tool registry plus local tools for files, commands, web inspection, and Git/GitHub checks.
 
 ## Current Tool List
+
+Thrush currently registers these tools:
 
 - `click_page`
 - `git_inspect`
@@ -67,13 +59,22 @@ It already has four connected parts:
 - `web_search`
 - `write_file`
 
-## Workspace Setup
+## Tech Stack
+
+- Next.js 15
+- React 19
+- TypeScript
+- OpenAI Node SDK
+- DeepSeek-compatible API endpoint
+- Playwright
+
+## Workspace Model
 
 By default, file tools work inside:
 
 - `data/workspace`
 
-You can point the agent at a real project folder with:
+You can point Thrush at a real project folder with:
 
 - `AGENT_WORKSPACE_ROOT`
 
@@ -84,7 +85,7 @@ $env:AGENT_WORKSPACE_ROOT="C:\Users\Administrator\Documents\my-real-project"
 npm run dev
 ```
 
-If `AGENT_WORKSPACE_ROOT` is empty, the agent keeps using the demo workspace.
+If `AGENT_WORKSPACE_ROOT` is not set, Thrush keeps using the demo workspace.
 
 ## Model Setup
 
@@ -96,35 +97,46 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
-The backend currently expects `DEEPSEEK_API_KEY` to exist before the real agent loop can run.
+The agent currently expects `DEEPSEEK_API_KEY` to exist before the real loop can run.
 
-## Safety Boundary
+## Safety Model
 
-Think of the workspace root like the fence around one allowed yard.
-The agent can work inside that yard, but it should not step outside it.
+Thrush uses a small safety boundary rather than full sandbox isolation.
 
-Current safety rules in this MVP:
+Current protections:
 
 - file paths are resolved against the configured workspace root
-- a path outside that root is rejected
-- write operations go through a draft first
-- nothing is written until the user approves the draft
-- `safe_command` only allows a very small whitelist
+- paths outside the workspace root are rejected
+- write operations become drafts first
+- nothing is written until the draft is explicitly approved
+- local commands go through a strict allowlist
 
 Current `safe_command` allowlist:
 
 - `git status`
 - `npm run build`
-- `npm test` only if the workspace has a `test` script
+- `npm test` only when the workspace has a `test` script
 - `rg` search
 - `rg --files`
 
 Blocked examples:
 
 - shells like `bash`, `powershell`, `cmd`
-- network download tools like `curl`, `wget`
+- download tools like `curl`, `wget`
 - scripting runtimes like `python`, `node`
 - destructive commands like `rm`, `del`, `move`
+
+## UI Notes
+
+The current UI is branded as `Thrush` and includes:
+
+- top-left product branding and icon
+- chat feed with streamed assistant output
+- visible thinking trace
+- draft approval buttons
+- sticky trace panel on larger screens
+
+This is still a developer-facing interface, not a polished end-user SaaS product.
 
 ## How To Run
 
@@ -138,22 +150,45 @@ npm run dev
 Then open:
 
 - `http://127.0.0.1:3000`
-- or `http://localhost:3000`
+- `http://localhost:3000`
 
-## Build Check
+## Verified Build
 
-Current verified command:
+The current production build command is:
 
 ```powershell
 npm run build
 ```
 
-This passed successfully on 2026-05-28.
+This was verified successfully again after the latest UI and agent updates.
 
-## Known Gaps
+## What This Repo Is Good For
+
+Thrush is a good fit if you want to:
+
+- prototype coding-agent loops
+- experiment with tool-calling behavior
+- test approval-gated file editing
+- try issue-to-plan coding workflows
+- evolve a small SWE agent toward a larger architecture later
+
+## Current Gaps
+
+Thrush is still missing several things you would want in a broader public-facing agent platform:
 
 - no formal automated test suite in the repo yet
-- no database or persistent task history
+- no database or durable session storage
+- pending draft state still depends on in-memory flow
 - no user accounts or auth
-- pending drafts live in server memory, so restart behavior is limited
-- docs can drift quickly because the project is changing fast
+- no multi-user workspace isolation
+- no production deployment setup in this repo
+- no long-term memory system
+- no multi-agent orchestration layer
+
+## Practical Status
+
+The simplest accurate description of the repo today is:
+
+`small real agent, not yet full platform`
+
+It already works as a serious prototype, but it is still closer to an operator workspace than a finished product.
