@@ -1,5 +1,5 @@
-<img width="248" height="274" alt="b61bf25a6fc699a282e40d63ce052b3d" src="https://github.com/user-attachments/assets/5a3999eb-bd03-479d-9309-542ebac06e8f" />
 # Thrush
+<img width="248" height="274" alt="b61bf25a6fc699a282e40d63ce052b3d" src="https://github.com/user-attachments/assets/bb389b24-24a8-4d2c-a9e2-aec316b43bf5" />
 
 
 Thrush is a lightweight SWE agent workspace built with Next.js.
