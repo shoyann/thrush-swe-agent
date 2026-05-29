@@ -2,9 +2,6 @@
 
 ## Project
 
-Mini Codex MVP in:
-
-`C:\Users\Administrator\Documents\Codex\2026-05-26\vibe-coding-swe-agent`
 
 Goal: build a stripped-down Codex-style SWE agent that stays understandable while still using a real backend loop and real tools.
 
