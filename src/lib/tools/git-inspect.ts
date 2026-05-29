@@ -918,6 +918,60 @@ function buildIssuePlan(issueText: string) {
   ].join("\n");
 }
 
+function pickIssueKeywordsForDisplay(keywords: string[]) {
+  return keywords.length > 0 ? keywords.join(", ") : "(need manual triage)";
+}
+
+function buildStructuredIssuePlan(issueText: string) {
+  const { title, body } = extractIssueTitleAndBody(issueText);
+  const candidatePaths = extractIssuePaths(issueText);
+  const keywords = extractIssueKeywords(title, body);
+  const goal = pickIssueGoal(title, body);
+  const displayedKeywords = pickIssueKeywordsForDisplay(keywords);
+  const relatedFileLines =
+    candidatePaths.length > 0
+      ? candidatePaths.map((filePath) => `- ${filePath}`)
+      : [
+          "- No exact file path was named in the issue text.",
+          `- Start with search_text using these keywords: ${displayedKeywords}`,
+        ];
+  const firstStepLine =
+    candidatePaths.length > 0
+      ? `- Read these files first and confirm where the problem actually happens: ${candidatePaths.slice(0, 3).join(", ")}`
+      : `- Run search_text first to locate the likely code area: ${displayedKeywords}`;
+
+  return [
+    "Execution plan:",
+    "",
+    "What this issue is trying to fix:",
+    `- ${goal}`,
+    "",
+    "Possible related files or modules:",
+    ...relatedFileLines,
+    "",
+    "Useful search keywords:",
+    `- ${displayedKeywords}`,
+    "",
+    "Recommended first step:",
+    firstStepLine,
+    "- After reading the first matching code, narrow the change scope to 1 to 3 files before editing.",
+    "",
+    "Suggested execution steps:",
+    "- Confirm the current behavior described by the issue.",
+    "- Inspect the related files or search results and identify the smallest fix point.",
+    "- Apply the smallest code change that solves the issue without expanding scope.",
+    "",
+    "Validation plan:",
+    "- Reproduce the issue first and note what is broken before the fix.",
+    "- Repeat the same check after the code change and confirm the problem is gone.",
+    "- Run npm run build to confirm the project still compiles.",
+    "",
+    "Scope guardrails:",
+    "- Keep the first version minimal and avoid unrelated cleanup.",
+    "- If the issue text is vague, inspect code first before deciding the exact edit.",
+  ].join("\n");
+}
+
 function summarizeGitChanges(
   branch: string | null,
   statusEntries: string[],
@@ -2077,7 +2131,7 @@ async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult
           ghAuthStatus: ghAuth.status,
           ghCliAvailable: ghCli.available,
           githubRemoteNames,
-          issuePlan: buildIssuePlan(issueText),
+          issuePlan: buildStructuredIssuePlan(issueText),
           message:
             issueNumber !== null && issueNumber > 0
               ? `Issue planning draft created successfully from GitHub issue #${issueNumber}.`

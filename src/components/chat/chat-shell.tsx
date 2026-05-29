@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import Image from "next/image";
+import { FormEvent, useLayoutEffect, useRef, useState } from "react";
 import type {
   AgentRequest,
   AgentSessionContext,
@@ -14,7 +15,7 @@ const starterMessages: ChatMessage[] = [
     id: "welcome",
     role: "assistant",
     content:
-      "I am your stripped-down Codex clone. Give me a task and I will show how the loop will work.",
+      "I am Thrush. Give me a task and I will show how the loop will work.",
   },
 ];
 
@@ -49,6 +50,7 @@ const loadingSteps: AgentStep[] = [
 ];
 
 const MAX_CONTEXT_MESSAGES = 8;
+const thinkingFragments = ["top", "right", "bottom", "left"] as const;
 
 type AgentErrorEvent = {
   type: "error";
@@ -106,7 +108,17 @@ export function ChatShell() {
   const [sessionContext, setSessionContext] = useState<AgentSessionContext>({});
   const [steps, setSteps] = useState<AgentStep[]>(starterSteps);
   const [isLoading, setIsLoading] = useState(false);
+  const messageViewportRef = useRef<HTMLDivElement | null>(null);
   const pendingDraft = sessionContext.pendingDraft;
+
+  useLayoutEffect(() => {
+    const viewport = messageViewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    viewport.scrollTop = viewport.scrollHeight;
+  }, [messages]);
 
   function applyStreamEvent(event: AgentStreamEvent | AgentErrorEvent) {
     if (event.type === "steps") {
@@ -273,15 +285,22 @@ export function ChatShell() {
 
   return (
     <main className="app-shell">
-      <section className="app-hero">
-        <p className="eyebrow">Mini Codex MVP</p>
-        <h1>Task in. Visible loop out.</h1>
-        <p className="copy">
-          This is the chat shell for the agent. The model and tools will be
-          connected next, but the UI already shows where messages and step logs
-          belong.
-        </p>
-      </section>
+      <header className="brand-bar" aria-label="Thrush brand">
+        <div className="brand-mark-wrap">
+          <Image
+            src="/icon.png"
+            alt="Thrush icon"
+            width={44}
+            height={44}
+            className="brand-mark"
+            priority
+          />
+        </div>
+        <div className="brand-copy">
+          <p className="brand-name">Thrush</p>
+          <p className="brand-tagline">Agent workspace</p>
+        </div>
+      </header>
 
       <section className="workspace-grid">
         <div className="panel chat-panel">
@@ -292,16 +311,38 @@ export function ChatShell() {
             </div>
           </div>
 
-          <div className="message-list">
-            {messages.map((message) => (
-              <article
-                key={message.id}
-                className={`message-bubble ${message.role}`}
-              >
-                <p className="message-role">{message.role}</p>
-                <p>{message.content}</p>
-              </article>
-            ))}
+          <div ref={messageViewportRef} className="message-viewport">
+            <div className="message-list">
+              {messages.map((message) => (
+                <article
+                  key={message.id}
+                  className={`message-bubble ${message.role}`}
+                >
+                  <p className="message-role">{message.role}</p>
+                  <p>{message.content}</p>
+                </article>
+              ))}
+
+              {isLoading ? (
+                <article className="message-bubble assistant thinking-bubble">
+                  <p className="message-role">assistant</p>
+                  <div className="thinking-shell" aria-label="Thrush is thinking">
+                    <div className="thinking-prism-container">
+                      {thinkingFragments.map((fragment) => (
+                        <span
+                          key={fragment}
+                          className={`prism-fragment ${fragment}`}
+                        />
+                      ))}
+                    </div>
+                    <div className="thinking-copy">
+                      <strong>Thinking</strong>
+                      <span>Gathering context and shaping the next step.</span>
+                    </div>
+                  </div>
+                </article>
+              ) : null}
+            </div>
           </div>
 
           {pendingDraft ? (
@@ -361,14 +402,28 @@ export function ChatShell() {
 
           <div className="step-list">
             {steps.map((step) => (
-              <article key={step.id} className="step-card">
-                <div className="step-topline">
-                  <h3>{step.title}</h3>
-                  <span className={`step-status ${step.status}`}>
-                    {step.status}
-                  </span>
+              <article
+                key={step.id}
+                className={`step-card ${step.status}`}
+              >
+                <div className="step-card-content">
+                  <div className="step-topline">
+                    <h3>{step.title}</h3>
+                    <span className={`step-status ${step.status}`}>
+                      {step.status === "running" ? (
+                        <span className="badge-node-container" aria-hidden="true">
+                          <span className="badge-node" />
+                          <span className="badge-node" />
+                          <span className="badge-node" />
+                        </span>
+                      ) : (
+                        <span className="step-status-dot" aria-hidden="true" />
+                      )}
+                      {step.status}
+                    </span>
+                  </div>
+                  <p>{step.detail}</p>
                 </div>
-                <p>{step.detail}</p>
               </article>
             ))}
           </div>
