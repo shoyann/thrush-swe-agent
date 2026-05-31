@@ -1227,7 +1227,7 @@ function deriveDirectSafeCommandToolCall(task: string): DirectToolPlan | null {
 function deriveDirectGitInspectToolCall(task: string): DirectToolPlan | null {
   const cleanTask = task.trim();
   const asksForIssuePlan =
-    /(issue\s*(计划|施工单|execution\s*plan)|执行计划|改代码计划|施工单)/i.test(cleanTask);
+    /(issue\s*(计划|execution\s*plan)|执行计划|改代码计划)/i.test(cleanTask);
   const issueDetailMatch =
     cleanTask.match(/\bissue\s+#?(\d+)\b/i) ||
     cleanTask.match(/issue\s*详情\s*#?(\d+)/i) ||
@@ -1290,7 +1290,7 @@ function deriveDirectGitInspectToolCall(task: string): DirectToolPlan | null {
 
   const asksForPrDraft =
     /\bpr\b/i.test(cleanTask) ||
-    /(pr 草稿|pull request|拉取请求|合并申请|pr 文案|pr draft|帮我写 pr)/i.test(
+    /(pr 草稿|pull request|拉取请求|合并请求|pr 文案|pr draft|帮我写 pr)/i.test(
       cleanTask,
     );
 
@@ -1638,13 +1638,13 @@ function deriveWebSearchQueryFromTask(task: string) {
   ]);
 
   query = stripTrailingMatch(query, [
-    /[，。,.!！?？]?\s*(?:并|然后|再)?\s*(?:把|将)?\s*(?:网页)?标题和链接(?:告诉我|给我|发我)?\s*$/u,
-    /[，。,.!！?？]?\s*(?:只要|只需要)?\s*(?:网页)?标题和链接\s*$/u,
-    /[，。,.!！?？]?\s*(?:告诉我|给我|发我|列出来)\s*$/u,
+    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:并|然后|再)?\s*(?:把|将)?\s*(?:网页)?标题和链接(?:告诉我|给我|发我)?\s*$/u,
+    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:只要|只需要)?\s*(?:网页)?标题和链接\s*$/u,
+    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:告诉我|给我|发我|列出来)\s*$/u,
     /\s*(?:and\s+)?(?:give|tell|show)\s+me\s+(?:the\s+)?title(?:s)?\s+and\s+link(?:s)?\s*$/iu,
   ]);
 
-  query = query.replace(/^[“”"'‘’\s]+|[“”"'‘’\s]+$/gu, "").trim();
+  query = query.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/gu, "").trim();
 
   return query || task.trim();
 }
