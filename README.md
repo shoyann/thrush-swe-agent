@@ -194,7 +194,7 @@ Thrush is a good fit if you want to:
 
 Thrush is still missing several things you would want in a broader public-facing agent platform:
 
-- no formal automated test suite in the repo yet
+- Playwright is configured in the repo, but there are currently no automated test cases targeting the project itself
 - no database or durable session storage
 - pending draft state still depends on in-memory flow
 - no multi-user workspace isolation
