@@ -1,2 +1,0 @@
-List files first.
-Then read the file you actually need.

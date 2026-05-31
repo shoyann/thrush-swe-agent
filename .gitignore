@@ -12,6 +12,8 @@
 .env.test.local
 .env.production.local
 data/drafts.db
+data/workspace/**
+!data/workspace/.gitkeep
 
 # logs
 npm-debug.log*
