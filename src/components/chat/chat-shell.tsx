@@ -51,6 +51,7 @@ const loadingSteps: AgentStep[] = [
 
 const MAX_CONTEXT_MESSAGES = 8;
 const thinkingFragments = ["top", "right", "bottom", "left"] as const;
+const agentApiSecret = process.env.NEXT_PUBLIC_AGENT_API_SECRET?.trim();
 
 type AgentErrorEvent = {
   type: "error";
@@ -215,6 +216,9 @@ export function ChatShell() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(agentApiSecret
+            ? { Authorization: `Bearer ${agentApiSecret}` }
+            : {}),
         },
         body: JSON.stringify(payload),
       });

@@ -4,6 +4,7 @@ export type ChatMessage = {
   id: string;
   role: Role;
   content: string;
+  reasoning_content?: string | null;
 };
 
 export type PendingDraftSnapshot = {

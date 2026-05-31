@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import OpenAI from "openai";
 import type {
   AgentResponse,
@@ -18,6 +20,8 @@ import {
   getPendingWriteDraft,
   savePendingWriteDraft,
 } from "@/lib/tools/pending-write";
+import { createLogger } from "@/lib/logger";
+import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
 
 type AgentContext = {
   cleanTask: string;
@@ -67,6 +71,7 @@ type ToolRun = {
 
 type ModelTextMessage = {
   content: string;
+  reasoning_content?: string | null;
 };
 
 type ModelToolMessage = {
@@ -77,7 +82,7 @@ type ModelToolMessage = {
 
 type LlmMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content?: string | null;
+  content?: string | Array<{ text?: string; type?: string }> | null;
   reasoning_content?: string | null;
   tool_call_id?: string;
   tool_calls?: Array<{
@@ -120,11 +125,12 @@ function createStep(id: string, title: string, detail: string): AgentStep {
   };
 }
 
-function createMessage(content: string): ChatMessage {
+function createMessage(content: string, reasoningContent?: string | null): ChatMessage {
   return {
     id: `assistant-${Date.now()}`,
     role: "assistant",
     content,
+    ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
   };
 }
 
@@ -207,10 +213,13 @@ async function callModelForText(
     },
   } as never);
 
-  const content = getMessageTextContent(response.choices[0]?.message?.content);
+  const message = response.choices[0]?.message;
+  const content = getMessageTextContent(message?.content);
+  const reasoningContent = getReasoningContent(message);
 
   return {
     content: content || "I reached the model, but it did not return usable text.",
+    reasoning_content: reasoningContent,
   };
 }
 
@@ -407,7 +416,7 @@ async function callModelForToolDecision(
   const reasoningContent = getReasoningContent(message);
   const assistantMessage: LlmMessage = {
     role: "assistant",
-    content,
+    content: message?.content ?? null,
     reasoning_content: reasoningContent,
     tool_calls:
       firstToolCall?.type === "function"
@@ -763,6 +772,16 @@ function looksLikeWorkspacePath(value: string) {
   );
 }
 
+function getDefaultIssueSearchPath() {
+  const workspaceRoot = getWorkspaceRoot();
+  const candidatePath =
+    ["src", "app", "pages", "components", "lib"].find((candidate) =>
+      existsSync(path.join(workspaceRoot, candidate)),
+    ) ?? ".";
+
+  return candidatePath;
+}
+
 function extractIssuePlanCandidatePaths(issuePlan: string) {
   return extractBulletItems(
     parseReportSection(issuePlan, "Possible related files or modules", [
@@ -823,7 +842,7 @@ function deriveIssueInvestigationToolCallFromToolRun(
       name: "search_text",
       input: {
         query: keywords[0],
-        path: ".",
+        path: getDefaultIssueSearchPath(),
       },
     };
   }
@@ -1555,6 +1574,27 @@ function normalizeToolInput(toolName: string, rawInput: ToolCallArgs, task: stri
   return rawInput;
 }
 
+function derivePastedIssuePlanToolCall(task: string): DirectToolPlan | null {
+  const cleanTask = task.trim();
+  const hasPastedIssueText =
+    /(?:^|\n)\s*title\s*:/i.test(cleanTask) &&
+    /(?:^|\n)\s*body\s*:/i.test(cleanTask);
+  const mentionsIssue = /\bissue\b/i.test(cleanTask);
+
+  if (!hasPastedIssueText || !mentionsIssue) {
+    return null;
+  }
+
+  return {
+    id: createSyntheticToolCallId(),
+    name: "git_inspect",
+    input: {
+      action: "issue_plan",
+      issue_text: cleanTask,
+    },
+  };
+}
+
 function stripLeadingMatch(text: string, patterns: RegExp[]) {
   let nextText = text.trim();
 
@@ -2055,6 +2095,8 @@ async function think(
 
   const directClickToolCall =
     toolRuns.length === 0 ? deriveDirectClickToolCall(perception.goal) : null;
+  const directPastedIssuePlanToolCall =
+    toolRuns.length === 0 ? derivePastedIssuePlanToolCall(perception.goal) : null;
   const directGitInspectToolCall =
     toolRuns.length === 0 ? deriveDirectGitInspectToolCall(perception.goal) : null;
   const directSafeCommandToolCall =
@@ -2073,6 +2115,23 @@ async function think(
         `think-${roundNumber}`,
         "Think",
         `Plan round ${roundNumber}: ${plan.join(" ")} Available tools: ${availableTools.map((tool) => tool.name).join(", ")}. Next action: Use ${directClickToolCall.name} with input ${formatToolExecutionInput(directClickToolCall.input)}.`,
+      ),
+    };
+  }
+
+  if (directPastedIssuePlanToolCall) {
+    return {
+      assistantMessage: null,
+      directAnswer: null,
+      nextAction: `Use ${directPastedIssuePlanToolCall.name} with input ${formatToolExecutionInput(directPastedIssuePlanToolCall.input)}.`,
+      plan,
+      toolCallId: directPastedIssuePlanToolCall.id,
+      toolName: directPastedIssuePlanToolCall.name,
+      toolInput: directPastedIssuePlanToolCall.input,
+      step: createStep(
+        `think-${roundNumber}`,
+        "Think",
+        `Plan round ${roundNumber}: ${plan.join(" ")} Available tools: ${availableTools.map((tool) => tool.name).join(", ")}. Next action: Use ${directPastedIssuePlanToolCall.name} with input ${formatToolExecutionInput(directPastedIssuePlanToolCall.input)}.`,
       ),
     };
   }
@@ -2193,7 +2252,7 @@ async function think(
       : "Fallback to a direct model answer because the tool decision was invalid.";
 
   return {
-    assistantMessage: plannedToolCall ? plannerReply.assistantMessage : null,
+    assistantMessage: plannerReply.assistantMessage,
     directAnswer,
     nextAction,
     plan,
@@ -2275,7 +2334,7 @@ async function thinkAfterReadForModification(
       : "Fallback to the normal second planning step because the tool decision was invalid.";
 
   return {
-    assistantMessage: plannedToolCall ? reply.assistantMessage : null,
+    assistantMessage: reply.assistantMessage,
     directAnswer,
     nextAction,
     plan: [
@@ -2404,7 +2463,9 @@ async function answerWithToolResults(
     );
 
     if (formattedReadPageAnswer) {
-      return formattedReadPageAnswer;
+      return {
+        content: formattedReadPageAnswer,
+      };
     }
   }
 
@@ -2415,7 +2476,9 @@ async function answerWithToolResults(
     );
 
     if (formattedClickPageAnswer) {
-      return formattedClickPageAnswer;
+      return {
+        content: formattedClickPageAnswer,
+      };
     }
   }
 
@@ -2447,7 +2510,7 @@ async function answerWithToolResults(
     ],
   );
 
-  return response.content;
+  return response;
 }
 
 async function answerDirectly(context: AgentContext, goal: string) {
@@ -2471,7 +2534,7 @@ async function answerDirectly(context: AgentContext, goal: string) {
     },
   ]);
 
-  return response.content;
+  return response;
 }
 
 async function runToolCall(
@@ -2502,11 +2565,30 @@ export async function runAgent(
   task: string,
   messages: ChatMessage[] = [],
   sessionContext: AgentSessionContext = {},
+  requestId: string,
   options: RunAgentOptions = {},
 ): Promise<AgentResponse> {
   const onEvent = options.onEvent;
   const finish = async (response: AgentResponse, includeSteps: boolean) =>
     finishAgentRun(response, onEvent, includeSteps);
+  const logger = createLogger(requestId);
+  const startedAt = Date.now();
+  let loopFinishedLogged = false;
+  const finishWithLogging = async (
+    response: AgentResponse,
+    includeSteps: boolean,
+    totalIterations: number,
+  ) => {
+    if (!loopFinishedLogged) {
+      loopFinishedLogged = true;
+      logger.info("agent loop finished", {
+        totalIterations,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
+    return finish(response, includeSteps);
+  };
 
   const normalizedSessionContext = normalizeSessionContext(sessionContext);
   const backendPendingDraft = getPendingWriteDraft();
@@ -2521,7 +2603,7 @@ export async function runAgent(
 
   const writeApprovalResult = await handleWriteApproval(task);
   if (writeApprovalResult) {
-    return finish(
+    return finishWithLogging(
       {
         ...writeApprovalResult,
         sessionContext: {
@@ -2530,11 +2612,12 @@ export async function runAgent(
         },
       },
       true,
+      0,
     );
   }
 
   if (draftLifecycleAction && !backendPendingDraft) {
-    return finish(
+    return finishWithLogging(
       {
         message: createMessage(
           [
@@ -2563,6 +2646,7 @@ export async function runAgent(
         ],
       },
       true,
+      0,
     );
   }
 
@@ -2571,7 +2655,7 @@ export async function runAgent(
     !draftLifecycleAction &&
     isAmbiguousDraftConfirmation(task)
   ) {
-    return finish(
+    return finishWithLogging(
       {
         message: createMessage(
           [
@@ -2604,6 +2688,7 @@ export async function runAgent(
         ],
       },
       true,
+      0,
     );
   }
 
@@ -2619,7 +2704,7 @@ export async function runAgent(
       throw new Error("Expected a pending draft approval result.");
     }
 
-    return finish(
+    return finishWithLogging(
       {
         ...approvalResult,
         sessionContext: {
@@ -2628,6 +2713,7 @@ export async function runAgent(
         },
       },
       true,
+      0,
     );
   }
 
@@ -2643,7 +2729,7 @@ export async function runAgent(
       throw new Error("Expected a pending draft cancel result.");
     }
 
-    return finish(
+    return finishWithLogging(
       {
         ...cancelResult,
         sessionContext: {
@@ -2652,6 +2738,7 @@ export async function runAgent(
         },
       },
       true,
+      0,
     );
   }
 
@@ -2659,7 +2746,7 @@ export async function runAgent(
     draftLifecycleAction === "continue" &&
     effectiveSessionContext.pendingDraft
   ) {
-    return finish(
+    return finishWithLogging(
       {
         message: createMessage(
           [
@@ -2691,6 +2778,7 @@ export async function runAgent(
         ],
       },
       true,
+      0,
     );
   }
 
@@ -2723,6 +2811,7 @@ export async function runAgent(
 
   while (true) {
     const roundNumber = toolRuns.length + 1;
+    logger.info("agent loop iteration start", { loopCount: roundNumber });
     const latestToolRun = toolRuns.at(-1) ?? null;
     const thought =
       latestToolRun &&
@@ -2750,8 +2839,18 @@ export async function runAgent(
     if (!thought.toolName || !thought.toolInput) {
       const reply =
         toolRuns.length === 0
-          ? thought.directAnswer ?? (await answerDirectly(context, perception.goal))
-          : thought.directAnswer ??
+          ? thought.directAnswer
+            ? {
+                content: thought.directAnswer,
+                reasoning_content: thought.assistantMessage?.reasoning_content ?? null,
+              }
+            : await answerDirectly(context, perception.goal)
+          : thought.directAnswer
+            ? {
+                content: thought.directAnswer,
+                reasoning_content: thought.assistantMessage?.reasoning_content ?? null,
+              }
+            : 
             (await answerWithToolResults(context, perception.goal, toolRuns));
 
       await pushStep(
@@ -2768,9 +2867,9 @@ export async function runAgent(
         ),
       );
 
-      return finish(
+      return finishWithLogging(
         {
-          message: createMessage(reply),
+          message: createMessage(reply.content, reply.reasoning_content),
           sessionContext:
             toolRuns.length === 0
               ? effectiveSessionContext
@@ -2778,28 +2877,45 @@ export async function runAgent(
           steps,
         },
         false,
+        toolRuns.length,
       );
     }
 
-    const toolRun = await runToolCall(
-      thought.toolName,
-      thought.toolInput,
-      thought.toolCallId ?? createSyntheticToolCallId(),
-      thought.assistantMessage ?? {
-        role: "assistant",
-        content: null,
-        tool_calls: [
-          {
-            id: thought.toolCallId ?? createSyntheticToolCallId(),
-            type: "function",
-            function: {
-              name: thought.toolName,
-              arguments: formatToolExecutionInput(thought.toolInput),
+    logger.info("tool call dispatched", { toolName: thought.toolName });
+
+    let toolRun: ToolRun;
+    try {
+      toolRun = await runToolCall(
+        thought.toolName,
+        thought.toolInput,
+        thought.toolCallId ?? createSyntheticToolCallId(),
+        thought.assistantMessage ?? {
+          role: "assistant",
+          content: "",
+          reasoning_content: "",
+          tool_calls: [
+            {
+              id: thought.toolCallId ?? createSyntheticToolCallId(),
+              type: "function",
+              function: {
+                name: thought.toolName,
+                arguments: formatToolExecutionInput(thought.toolInput),
+              },
             },
-          },
-        ],
-      },
-    );
+          ],
+        },
+      );
+      logger.info("tool call completed", {
+        toolName: thought.toolName,
+        succeeded: toolRun.result.ok,
+      });
+    } catch (error) {
+      logger.info("tool call completed", {
+        toolName: thought.toolName,
+        succeeded: false,
+      });
+      throw error;
+    }
 
     toolRuns.push(toolRun);
 
@@ -2821,13 +2937,14 @@ export async function runAgent(
         createStep(`act-${roundNumber}`, "Act", immediateOutcome.actDetail),
       );
 
-      return finish(
+      return finishWithLogging(
         {
           message: createMessage(immediateOutcome.message),
           sessionContext: buildNextSessionContext(effectiveSessionContext, toolRuns),
           steps,
         },
         false,
+        toolRuns.length,
       );
     }
 
@@ -2842,13 +2959,14 @@ export async function runAgent(
         ),
       );
 
-      return finish(
+      return finishWithLogging(
         {
-          message: createMessage(finalReply),
+          message: createMessage(finalReply.content, finalReply.reasoning_content),
           sessionContext: buildNextSessionContext(effectiveSessionContext, toolRuns),
           steps,
         },
         false,
+        toolRuns.length,
       );
     }
   }

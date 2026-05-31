@@ -1,10 +1,11 @@
-import { chromium } from "playwright";
 import type {
   AgentTool,
   ToolCallArgs,
   ToolExecutionInput,
   ToolResult,
 } from "@/lib/tools/types";
+import { launchPlaywrightChromium } from "@/lib/tools/playwright-browser";
+import { assertSafeUrl } from "@/lib/tools/url-guard";
 
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const MAX_TEXT_LENGTH = 2_000;
@@ -142,9 +143,18 @@ async function executeReadPage(input: ToolExecutionInput): Promise<ToolResult> {
     };
   }
 
-  const browser = await chromium.launch({
-    headless: true,
-  });
+  try {
+    assertSafeUrl(parsed.url);
+  } catch (error) {
+    console.warn("Blocked read_page request for unsafe URL.", { url: parsed.url });
+
+    return {
+      ok: false,
+      content: formatReadPageError(parsed.url, error),
+    };
+  }
+
+  const browser = await launchPlaywrightChromium();
 
   try {
     const page = await browser.newPage();

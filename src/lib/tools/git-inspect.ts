@@ -9,7 +9,7 @@ import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_PREVIEW_LENGTH = 12_000;
-const GH_CLI_EXECUTABLE = "C:\\Program Files\\GitHub CLI\\gh.exe";
+const GH_CLI_EXECUTABLE = process.env.GH_PATH?.trim() || "gh";
 
 type GitInspectAction =
   | "check_repo"
@@ -798,6 +798,16 @@ function extractIssueTitleAndBody(issueText: string) {
     };
   }
 
+  const titleMatch = normalizedText.match(/(?:^|\n)\s*title\s*:\s*(.+)$/im);
+  const bodyMatch = normalizedText.match(/(?:^|\n)\s*body\s*:\s*([\s\S]*)$/im);
+
+  if (titleMatch || bodyMatch) {
+    return {
+      title: normalizeIssueSentence(titleMatch?.[1] ?? "") || "Untitled issue",
+      body: (bodyMatch?.[1] ?? "").trim(),
+    };
+  }
+
   const nonEmptyLines = normalizedText
     .split("\n")
     .map((line) => line.trim())
@@ -836,10 +846,23 @@ function extractIssuePaths(issueText: string) {
 }
 
 function extractIssueKeywords(title: string, body: string) {
-  const combined = `${title}\n${body}`;
-  const englishTokens = combined.match(/[A-Za-z][A-Za-z0-9_-]{2,}/g) ?? [];
+  const combined = `${body}\n${title}`;
+  const quotedTokens = [...combined.matchAll(/["'`“”]([A-Za-z][A-Za-z0-9 _-]{1,40})["'`“”]/g)].map(
+    (match) => normalizeIssueSentence(match[1] ?? ""),
+  );
+  const englishTokens = combined.match(/[A-Za-z][A-Za-z0-9_-]{3,}/g) ?? [];
   const chineseTokens = combined.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
   const stopWords = new Set([
+    "body",
+    "both",
+    "button",
+    "chrome",
+    "click",
+    "clicks",
+    "firefox",
+    "page",
+    "panel",
+    "shows",
     "the",
     "and",
     "for",
@@ -856,10 +879,13 @@ function extractIssueKeywords(title: string, body: string) {
     "after",
     "before",
     "into",
+    "title",
+    "user",
+    "when",
   ]);
 
   return dedupeStrings(
-    [...englishTokens, ...chineseTokens]
+    [...quotedTokens, ...englishTokens, ...chineseTokens]
       .map((token) => token.trim())
       .filter((token) => {
         if (/^[A-Za-z]/.test(token)) {
@@ -2101,7 +2127,7 @@ async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult
       issueText = formatIssueDetail(issue);
     }
   } catch (error) {
-    if (!isNotGitRepositoryError(error)) {
+    if (!isNotGitRepositoryError(error) && !isCommandMissingError(error)) {
       const message =
         (error as { message?: string })?.message ??
         "git_inspect failed while checking repository state for issue planning.";

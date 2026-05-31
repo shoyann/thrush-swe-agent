@@ -112,6 +112,8 @@ Current protections:
 - write operations become drafts first
 - nothing is written until the draft is explicitly approved
 - local commands go through a strict allowlist
+- browser URL access blocks private and loopback targets
+- browser tools reject `localhost`, private IP ranges, and cloud metadata endpoints
 
 Current `safe_command` allowlist:
 
@@ -127,6 +129,20 @@ Blocked examples:
 - download tools like `curl`, `wget`
 - scripting runtimes like `python`, `node`
 - destructive commands like `rm`, `del`, `move`
+
+## Security
+
+Thrush now includes a few concrete server-side protections:
+
+- `POST /api/agent` is protected by a Bearer token using `AGENT_API_SECRET`
+- browser tools reject private-network targets to reduce SSRF risk
+- the GitHub CLI wrapper supports `GH_PATH` as an environment-variable override for local or non-standard installs
+
+## Observability
+
+Each agent run now gets a unique request ID.
+
+The backend emits structured JSON logs at the key lifecycle points, including request start, loop iteration start, tool dispatch, tool completion, successful completion, and failure.
 
 ## UI Notes
 
@@ -181,7 +197,6 @@ Thrush is still missing several things you would want in a broader public-facing
 - no formal automated test suite in the repo yet
 - no database or durable session storage
 - pending draft state still depends on in-memory flow
-- no user accounts or auth
 - no multi-user workspace isolation
 - no production deployment setup in this repo
 - no long-term memory system

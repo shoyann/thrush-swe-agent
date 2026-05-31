@@ -11,6 +11,7 @@
 .env.development.local
 .env.test.local
 .env.production.local
+data/drafts.db
 
 # logs
 npm-debug.log*
@@ -28,3 +29,10 @@ pnpm-debug.log*
 # system files
 .DS_Store
 Thumbs.db
+
+# Playwright
+node_modules/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
