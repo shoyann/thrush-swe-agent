@@ -27,6 +27,7 @@ pnpm-debug.log*
 # local dev runtime output
 /.next-dev
 /test-results
+/.test-dist
 
 # system files
 .DS_Store
