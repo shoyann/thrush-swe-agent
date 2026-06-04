@@ -20,13 +20,15 @@
 
 | Capability | Detail |
 |---|---|
-| Agent loop | `Perceive -> Think -> Act` streamed to the UI in real time |
+| Agent loop | Lean `Perceive -> Think -> Act` loop streamed to the UI in real time |
 | Tool calling | Files, search, web, Git, GitHub issues, shell allowlist |
+| Agent architecture | Tool result hooks, think strategies, and direct tool plan rules keep the main loop small |
 | Draft approval | Nothing writes to disk until you explicitly approve |
 | Browser tools | Playwright-powered page reading and clicking |
 | Safety boundary | Workspace sandboxed, SSRF blocked, commands allowlisted |
 | Observability | Every run gets a unique `req_xxxxxx` ID with structured JSON logs |
 | Auth | `POST /api/agent` protected by Bearer token |
+| Model client | DeepSeek by default, with provider-aware configuration for OpenAI-compatible clients |
 
 ## Quickstart
 
@@ -74,9 +76,16 @@ Then restart `npm run dev`.
 
 | Name | Required | Purpose |
 |---|---:|---|
+| `MODEL_PROVIDER` | No | Model provider selector; supports `deepseek`, `openai`, or `anthropic`; defaults to `deepseek` |
 | `DEEPSEEK_API_KEY` | Yes | API key used by the server-side agent loop |
 | `DEEPSEEK_BASE_URL` | No | DeepSeek-compatible API base URL; defaults to `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | No | Model name; defaults to `deepseek-v4-flash` |
+| `OPENAI_API_KEY` | If `MODEL_PROVIDER=openai` | OpenAI API key |
+| `OPENAI_BASE_URL` | No | Optional OpenAI-compatible API base URL override |
+| `OPENAI_MODEL` | If `MODEL_PROVIDER=openai` | OpenAI model name; defaults to `gpt-4.1-mini` |
+| `ANTHROPIC_API_KEY` | If `MODEL_PROVIDER=anthropic` | Anthropic API key for an OpenAI-compatible Anthropic gateway |
+| `ANTHROPIC_BASE_URL` | If `MODEL_PROVIDER=anthropic` | OpenAI-compatible Anthropic gateway URL |
+| `ANTHROPIC_MODEL` | If `MODEL_PROVIDER=anthropic` | Anthropic model name; defaults to `claude-sonnet-4-20250514` |
 | `AGENT_API_SECRET` | Yes | Server-side Bearer token required by `/api/agent` |
 | `NEXT_PUBLIC_AGENT_API_SECRET` | Local dev only | Browser-side token used by the local UI to call `/api/agent` |
 | `AGENT_WORKSPACE_ROOT` | No | Absolute folder path the agent is allowed to inspect and draft edits inside |
@@ -96,6 +105,7 @@ Then restart `npm run dev`.
 ## Known gaps
 
 - Test coverage is still narrow. The current `test` script focuses on `safe_command`; agent loop, API route, file tools, and browser tools still need tests.
+- The main loop is now smaller and more modular, but the new `onResult`, think strategy, direct plan rule, and model provider paths still need dedicated tests.
 - File reading supports line windows; file listing is still one folder at a time, with no tree summary tool yet.
 - Draft storage is in memory, so a server restart loses pending drafts.
 - `NEXT_PUBLIC_AGENT_API_SECRET` makes local UI auth simple, but it is not a production-grade auth design.
