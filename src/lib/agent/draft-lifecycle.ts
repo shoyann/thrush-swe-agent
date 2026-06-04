@@ -1,9 +1,6 @@
 import type { AgentResponse } from "@/types/agent";
-import {
-  applyPendingWriteDraft,
-  clearPendingWriteDraft,
-  getPendingWriteDraft,
-} from "@/lib/tools/pending-write";
+import type { WriteFileDraft } from "@/lib/tools/types";
+import { applyPendingWriteDraft } from "@/lib/tools/pending-write";
 import {
   createMessage,
   createStep,
@@ -91,6 +88,7 @@ export function isAmbiguousDraftConfirmation(task: string) {
 
 export async function handleWriteApproval(
   task: string,
+  pendingDraft: WriteFileDraft | null,
 ): Promise<AgentResponse | null> {
   const command = parseWriteCommand(task);
 
@@ -131,8 +129,6 @@ export async function handleWriteApproval(
   }
 
   if (command.type === "approve") {
-    const pendingDraft = getPendingWriteDraft();
-
     if (!pendingDraft) {
       return {
         message: createMessage("There is no pending write draft to approve."),
@@ -189,7 +185,7 @@ export async function handleWriteApproval(
       };
     }
 
-    const appliedDraft = await applyPendingWriteDraft();
+    const appliedDraft = await applyPendingWriteDraft(pendingDraft);
 
     return {
       message: createMessage(
@@ -224,8 +220,6 @@ export async function handleWriteApproval(
       ],
     };
   }
-
-  const pendingDraft = getPendingWriteDraft();
 
   if (!pendingDraft) {
     return {
@@ -282,8 +276,6 @@ export async function handleWriteApproval(
       ],
     };
   }
-
-  clearPendingWriteDraft();
 
   return {
     message: createMessage(

@@ -46,12 +46,26 @@ export function normalizeSessionContext(
     lastReadFilePath: sessionContext.lastReadFilePath?.trim() || null,
     lastToolInput: sessionContext.lastToolInput?.trim() || null,
     lastToolName: sessionContext.lastToolName?.trim() || null,
+    projectId: sessionContext.projectId?.trim() || null,
+    readOnly: sessionContext.readOnly === true,
+    sessionId: sessionContext.sessionId?.trim() || null,
+    workspacePathOverride: sessionContext.workspacePathOverride?.trim() || null,
     pendingDraft: sessionContext.pendingDraft
       ? {
           ...sessionContext.pendingDraft,
           content: sessionContext.pendingDraft.content,
           id: sessionContext.pendingDraft.id.trim(),
           path: sessionContext.pendingDraft.path.trim(),
+        }
+      : null,
+    pendingWorkspaceSwitch: sessionContext.pendingWorkspaceSwitch
+      ? {
+          ...sessionContext.pendingWorkspaceSwitch,
+          id: sessionContext.pendingWorkspaceSwitch.id.trim(),
+          originalTask: sessionContext.pendingWorkspaceSwitch.originalTask.trim(),
+          readOnly: sessionContext.pendingWorkspaceSwitch.readOnly === true,
+          workspacePath:
+            sessionContext.pendingWorkspaceSwitch.workspacePath.trim(),
         }
       : null,
   };

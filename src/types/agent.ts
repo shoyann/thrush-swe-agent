@@ -14,6 +14,14 @@ export type PendingDraftSnapshot = {
   path: string;
 };
 
+export type PendingWorkspaceSwitch = {
+  id: string;
+  originalTask: string;
+  readOnly?: boolean;
+  requestedAt: number;
+  workspacePath: string;
+};
+
 export type AgentSessionContext = {
   conversationSummary?: string | null;
   lastListedDirectoryPath?: string | null;
@@ -21,6 +29,11 @@ export type AgentSessionContext = {
   lastToolInput?: string | null;
   lastToolName?: string | null;
   pendingDraft?: PendingDraftSnapshot | null;
+  pendingWorkspaceSwitch?: PendingWorkspaceSwitch | null;
+  projectId?: string | null;
+  readOnly?: boolean | null;
+  sessionId?: string | null;
+  workspacePathOverride?: string | null;
 };
 
 export type StepStatus = "idle" | "running" | "done";
@@ -34,7 +47,9 @@ export type AgentStep = {
 
 export type AgentRequest = {
   messages?: ChatMessage[];
+  projectId?: string;
   sessionContext?: AgentSessionContext;
+  sessionId?: string;
   stream?: boolean;
   task: string;
 };

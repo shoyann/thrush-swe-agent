@@ -10,6 +10,8 @@ import { webSearchTool } from "@/lib/tools/web-search";
 import { writeFileTool } from "@/lib/tools/write-file";
 import type { AgentTool } from "@/lib/tools/types";
 
+const readOnlyBlockedToolNames = new Set(["write_file", "replace_text"]);
+
 const tools: AgentTool[] = [
   clickPageTool,
   gitInspectTool,
@@ -23,14 +25,22 @@ const tools: AgentTool[] = [
   writeFileTool,
 ];
 
+export function isReadOnlyBlockedTool(toolName: string) {
+  return readOnlyBlockedToolNames.has(toolName);
+}
+
 export function getTool(name: string) {
   return tools.find((tool) => tool.name === name);
 }
 
-export function listTools() {
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-  }));
+export function listTools(options: { readOnly?: boolean } = {}) {
+  return tools
+    .filter((tool) =>
+      options.readOnly ? !isReadOnlyBlockedTool(tool.name) : true,
+    )
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
 }

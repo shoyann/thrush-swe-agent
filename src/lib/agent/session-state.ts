@@ -6,6 +6,7 @@ export function formatSessionContextForModel(
   sessionContext: AgentSessionContext,
 ) {
   const lines = [
+    `Read-only mode: ${sessionContext.readOnly ? "on" : "off"}`,
     `Last tool name: ${sessionContext.lastToolName ?? "none"}`,
     `Last tool input: ${sessionContext.lastToolInput ?? "none"}`,
     `Last listed directory: ${sessionContext.lastListedDirectoryPath ?? "none"}`,
@@ -19,6 +20,15 @@ export function formatSessionContextForModel(
     lines.push(sessionContext.pendingDraft.content || "(empty file)");
   } else {
     lines.push("Pending draft id: none");
+  }
+
+  if (sessionContext.pendingWorkspaceSwitch) {
+    lines.push(`Pending workspace switch id: ${sessionContext.pendingWorkspaceSwitch.id}`);
+    lines.push(
+      `Pending workspace switch path: ${sessionContext.pendingWorkspaceSwitch.workspacePath}`,
+    );
+  } else {
+    lines.push("Pending workspace switch id: none");
   }
 
   lines.push(
