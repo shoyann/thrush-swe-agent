@@ -102,5 +102,4 @@ Then restart `npm run dev`.
 
 ## Status
 
-> Small real agent, not yet a full platform.
-> Works as a serious prototype. Missing: persistent sessions, multi-user isolation, test suite, and production deployment hardening.
+> Thrush is a minimal, self-hosted SWE agent that plans, inspects, and edits code with human approval.
