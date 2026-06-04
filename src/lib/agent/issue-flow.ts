@@ -7,8 +7,8 @@ import {
 } from "@/lib/agent/tool-args";
 import {
   createSyntheticToolCallId,
-  type ToolRun,
 } from "@/lib/agent/tool-run-types";
+import type { ToolRun } from "@/lib/tools/types";
 import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
 
 function taskLooksChinese(text: string) {

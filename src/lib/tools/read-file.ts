@@ -6,6 +6,10 @@ import type {
   ToolResult,
 } from "@/lib/tools/types";
 import { resolveWorkspacePath } from "@/lib/tools/workspace-path";
+import {
+  formatIssueInvestigationAnswer,
+  isIssueDrivenReadForDraft,
+} from "@/lib/agent/issue-flow";
 
 const DEFAULT_MAX_LINES = 500;
 const MAX_LINES_LIMIT = 1000;
@@ -215,4 +219,14 @@ export const readFileTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeReadFile,
+  onResult(goal, _result, toolRuns) {
+    const issueInvestigationAnswer = formatIssueInvestigationAnswer(goal, toolRuns);
+
+    return issueInvestigationAnswer && !isIssueDrivenReadForDraft(toolRuns)
+      ? {
+          type: "immediate",
+          message: issueInvestigationAnswer,
+        }
+      : null;
+  },
 };

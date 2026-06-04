@@ -6,6 +6,11 @@ import type {
   ToolResult,
 } from "@/lib/tools/types";
 import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
+import {
+  deriveIssueInvestigationToolCallFromToolRun,
+  extractIssuePlanFromGitInspectReport,
+  parseGitInspectAction,
+} from "@/lib/agent/issue-flow";
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_PREVIEW_LENGTH = 12_000;
@@ -2589,4 +2594,26 @@ export const gitInspectTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeGitInspect,
+  onResult(_goal, result, toolRuns) {
+    const toolRun = toolRuns.at(-1);
+
+    if (
+      !toolRun ||
+      !result.ok ||
+      parseGitInspectAction(result.content) !== "issue_plan"
+    ) {
+      return null;
+    }
+
+    const issuePlan = extractIssuePlanFromGitInspectReport(result.content);
+
+    if (!issuePlan || deriveIssueInvestigationToolCallFromToolRun(toolRun)) {
+      return null;
+    }
+
+    return {
+      type: "immediate",
+      message: issuePlan,
+    };
+  },
 };

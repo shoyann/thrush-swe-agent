@@ -47,9 +47,26 @@ export type ToolInputSchema = {
 
 export type ToolExecutionInput = string | ToolCallArgs;
 
+export type ToolRun = {
+  input: ToolExecutionInput;
+  inputText: string;
+  name: string;
+  result: ToolResult;
+};
+
+export type ImmediateToolOutcome = {
+  message: string;
+  type: "immediate";
+};
+
 export type AgentTool = {
   description: string;
   inputSchema: ToolInputSchema;
   execute: (input: ToolExecutionInput) => Promise<ToolResult>;
   name: string;
+  onResult?: (
+    goal: string,
+    result: ToolResult,
+    toolRuns: ToolRun[],
+  ) => ImmediateToolOutcome | null;
 };

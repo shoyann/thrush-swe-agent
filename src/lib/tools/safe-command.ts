@@ -88,6 +88,21 @@ function parseArgTags(text: string) {
     .filter((value) => value.length > 0);
 }
 
+function getStringArg(args: ToolCallArgs, key: string) {
+  const value = args[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getStringArrayArg(args: ToolCallArgs, key: string) {
+  const value = args[key];
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === "string");
+}
+
 function normalizeRelativePath(targetPath: string) {
   return path.relative(getWorkspaceRoot(), targetPath).replace(/\\/g, "/") || ".";
 }
@@ -340,6 +355,25 @@ function parseSafeCommandInput(input: ToolExecutionInput) {
   return parseSafeCommandObjectInput(input);
 }
 
+function isVerificationSafeCommandInput(input: ToolExecutionInput) {
+  if (typeof input === "string") {
+    return false;
+  }
+
+  const command = getStringArg(input, "command").toLowerCase();
+  const args = getStringArrayArg(input, "args");
+
+  if (command === "git" && args.length === 1 && args[0] === "status") {
+    return true;
+  }
+
+  return (
+    command === "npm" &&
+    ((args.length === 2 && args[0] === "run" && args[1] === "build") ||
+      (args.length === 1 && args[0] === "test"))
+  );
+}
+
 async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult> {
   const parsed = parseSafeCommandInput(input);
 
@@ -490,6 +524,18 @@ export const safeCommandTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeSafeCommand,
+  onResult(_goal, result, toolRuns) {
+    const toolRun = toolRuns.at(-1);
+
+    if (!toolRun || !isVerificationSafeCommandInput(toolRun.input)) {
+      return null;
+    }
+
+    return {
+      type: "immediate",
+      message: result.content,
+    };
+  },
 };
 
 export const __safeCommandTestInternals = {

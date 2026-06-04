@@ -34,16 +34,105 @@ export type LlmMessage = {
   }>;
 };
 
-function createModelClient() {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+export type ModelProvider = "anthropic" | "deepseek" | "openai";
+
+export type ModelClientConfig = {
+  apiKey?: string;
+  baseURL?: string;
+};
+
+function getConfiguredProvider(): ModelProvider {
+  const provider = process.env.MODEL_PROVIDER?.trim().toLowerCase();
+
+  if (!provider) {
+    return "deepseek";
+  }
+
+  if (
+    provider === "anthropic" ||
+    provider === "deepseek" ||
+    provider === "openai"
+  ) {
+    return provider;
+  }
+
+  throw new Error(
+    'MODEL_PROVIDER must be one of "deepseek", "openai", or "anthropic".',
+  );
+}
+
+function getProviderDefaults(provider: ModelProvider) {
+  if (provider === "deepseek") {
+    return {
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+      missingKeyMessage: "Missing DEEPSEEK_API_KEY.",
+    };
+  }
+
+  if (provider === "openai") {
+    return {
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL,
+      missingKeyMessage: "Missing OPENAI_API_KEY.",
+    };
+  }
+
+  return {
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    baseURL: process.env.ANTHROPIC_BASE_URL,
+    missingKeyMessage: "Missing ANTHROPIC_API_KEY.",
+  };
+}
+
+function getProviderExtraBody(provider: ModelProvider) {
+  if (provider !== "deepseek") {
+    return undefined;
+  }
+
+  return {
+    thinking: {
+      type: "disabled",
+    },
+  };
+}
+
+export function getConfiguredModelName() {
+  const provider = getConfiguredProvider();
+
+  if (provider === "deepseek") {
+    return process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
+  }
+
+  if (provider === "openai") {
+    return process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  }
+
+  return process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514";
+}
+
+function createModelClient(
+  provider: ModelProvider,
+  config: ModelClientConfig = {},
+) {
+  const defaults = getProviderDefaults(provider);
+  const apiKey = config.apiKey ?? defaults.apiKey;
 
   if (!apiKey) {
-    throw new Error("Missing DEEPSEEK_API_KEY.");
+    throw new Error(defaults.missingKeyMessage);
   }
+
+  if (provider === "anthropic" && !(config.baseURL ?? defaults.baseURL)) {
+    throw new Error(
+      "ANTHROPIC_BASE_URL is required because the current model client uses the OpenAI-compatible chat completions interface.",
+    );
+  }
+
+  const baseURL = config.baseURL ?? defaults.baseURL;
 
   return new OpenAI({
     apiKey,
-    baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+    ...(baseURL ? { baseURL } : {}),
   });
 }
 
@@ -112,14 +201,12 @@ export async function callModelForText(
   model: string,
   messages: LlmMessage[],
 ): Promise<ModelTextMessage> {
-  const response = await createModelClient().chat.completions.create({
+  const provider = getConfiguredProvider();
+  const extraBody = getProviderExtraBody(provider);
+  const response = await createModelClient(provider).chat.completions.create({
     model,
     messages,
-    extra_body: {
-      thinking: {
-        type: "disabled",
-      },
-    },
+    ...(extraBody ? { extra_body: extraBody } : {}),
   } as never);
 
   const message = response.choices[0]?.message;
@@ -137,16 +224,14 @@ export async function callModelForToolDecision(
   messages: LlmMessage[],
   allowedToolNames?: string[],
 ): Promise<ModelToolMessage> {
-  const response = await createModelClient().chat.completions.create({
+  const provider = getConfiguredProvider();
+  const extraBody = getProviderExtraBody(provider);
+  const response = await createModelClient(provider).chat.completions.create({
     model,
     messages,
     tools: buildModelTools(allowedToolNames),
     tool_choice: "auto",
-    extra_body: {
-      thinking: {
-        type: "disabled",
-      },
-    },
+    ...(extraBody ? { extra_body: extraBody } : {}),
   } as never);
 
   const message = response.choices[0]?.message;
