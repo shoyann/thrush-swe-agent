@@ -79,6 +79,25 @@ function isCancelTask(task: string, expectedId?: string) {
   );
 }
 
+function isReadOnlyRequested(task: string) {
+  return (
+    /read[\s-]*only|readonly/i.test(task) ||
+    /(\u53ea\u8bfb|\u53ea\u770b\u4e0d\u6539)/.test(task)
+  );
+}
+
+function isReadOnlyExitTask(task: string) {
+  const cleanTask = task.trim();
+
+  return (
+    /^(exit|disable|turn off|leave)\s+read[\s-]*only(?:\s+mode)?$/i.test(cleanTask) ||
+    /^normal\s+mode$/i.test(cleanTask) ||
+    /^(\u9000\u51fa\u53ea\u8bfb|\u5173\u95ed\u53ea\u8bfb|\u5207\u56de\u6b63\u5e38\u6a21\u5f0f|\u6b63\u5e38\u6a21\u5f0f)$/.test(
+      cleanTask,
+    )
+  );
+}
+
 function stripWrappingQuotes(rawPath: string) {
   return rawPath.replace(/^["'`]+|["'`]+$/g, "").trim();
 }
@@ -86,6 +105,13 @@ function stripWrappingQuotes(rawPath: string) {
 function cleanExtractedPath(rawPath: string) {
   let cleanPath = stripWrappingQuotes(rawPath.trim());
 
+  cleanPath = cleanPath
+    .replace(/\s*(?:\((?:read[\s-]*only|readonly)\)|read[\s-]*only|readonly)\s*$/i, "")
+    .replace(
+      /\s*(?:\uFF08\u53ea\u8bfb\uFF09|\(\u53ea\u8bfb\)|\u53ea\u8bfb\u6a21\u5f0f|\u53ea\u8bfb)\s*$/,
+      "",
+    )
+    .trim();
   cleanPath = cleanPath.replace(/[;,!?].*$/g, "").trim();
 
   const trailingPhrases = [
@@ -160,6 +186,28 @@ export function handleWorkspaceSwitchTask(input: {
   };
   const pendingSwitch = sessionContext.pendingWorkspaceSwitch ?? null;
 
+  if (isReadOnlyExitTask(task)) {
+    return {
+      handled: true,
+      message: [
+        "Read-only mode is now off for this session.",
+        "",
+        `Current workspace: ${getEffectiveWorkspacePath(
+          sessionContext,
+          projectWorkspacePath,
+        )}`,
+        "",
+        "Write tools are available again.",
+      ].join("\n"),
+      sessionContext: {
+        ...sessionContext,
+        pendingWorkspaceSwitch: null,
+        readOnly: false,
+      },
+      steps: buildWorkspaceSwitchSteps("The user turned read-only mode off."),
+    };
+  }
+
   if (pendingSwitch && isCancelTask(task, pendingSwitch.id)) {
     return {
       handled: true,
@@ -228,6 +276,7 @@ export function handleWorkspaceSwitchTask(input: {
         "Switched this session to the new workspace.",
         "",
         `New workspace: ${workspacePath}`,
+        `Mode: ${pendingSwitch.readOnly ? "read-only" : sessionContext.readOnly ? "read-only" : "normal"}`,
         "",
         "I also cleared the old file and directory hints for this session, so later tool calls stay tied to the new workspace.",
       ].join("\n"),
@@ -238,6 +287,7 @@ export function handleWorkspaceSwitchTask(input: {
         lastToolInput: null,
         lastToolName: null,
         pendingWorkspaceSwitch: null,
+        readOnly: pendingSwitch.readOnly ? true : sessionContext.readOnly === true,
         workspacePathOverride: workspacePath,
       },
       steps: buildWorkspaceSwitchSteps("The workspace switch was confirmed and applied."),
@@ -289,11 +339,13 @@ export function handleWorkspaceSwitchTask(input: {
   }
 
   const switchId = createSwitchId();
+  const readOnly = isReadOnlyRequested(task);
   const nextContext: AgentSessionContext = {
     ...sessionContext,
     pendingWorkspaceSwitch: {
       id: switchId,
       originalTask: task,
+      readOnly,
       requestedAt: Date.now(),
       workspacePath,
     },
@@ -306,10 +358,14 @@ export function handleWorkspaceSwitchTask(input: {
       "",
       `Target workspace: ${workspacePath}`,
       `Current workspace: ${getEffectiveWorkspacePath(sessionContext, projectWorkspacePath)}`,
+      `Mode after switch: ${readOnly ? "read-only" : sessionContext.readOnly ? "read-only" : "normal"}`,
       "",
       "After confirmation:",
       "- Only this session changes; other sessions in the project stay unchanged.",
       "- Agent tools will be limited to the target workspace.",
+      readOnly
+        ? "- File modification tools will be disabled for this session."
+        : "- Current read-only setting will stay unchanged.",
       "- Old file and directory hints will be cleared to avoid mixing paths.",
       "",
       `To switch, reply: ${CONFIRM_WORKSPACE_SWITCH_COMMAND} ${switchId}`,

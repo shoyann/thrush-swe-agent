@@ -17,6 +17,7 @@ export type PendingDraftSnapshot = {
 export type PendingWorkspaceSwitch = {
   id: string;
   originalTask: string;
+  readOnly?: boolean;
   requestedAt: number;
   workspacePath: string;
 };
@@ -30,6 +31,7 @@ export type AgentSessionContext = {
   pendingDraft?: PendingDraftSnapshot | null;
   pendingWorkspaceSwitch?: PendingWorkspaceSwitch | null;
   projectId?: string | null;
+  readOnly?: boolean | null;
   sessionId?: string | null;
   workspacePathOverride?: string | null;
 };

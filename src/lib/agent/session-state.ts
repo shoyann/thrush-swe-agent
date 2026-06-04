@@ -6,6 +6,7 @@ export function formatSessionContextForModel(
   sessionContext: AgentSessionContext,
 ) {
   const lines = [
+    `Read-only mode: ${sessionContext.readOnly ? "on" : "off"}`,
     `Last tool name: ${sessionContext.lastToolName ?? "none"}`,
     `Last tool input: ${sessionContext.lastToolInput ?? "none"}`,
     `Last listed directory: ${sessionContext.lastListedDirectoryPath ?? "none"}`,

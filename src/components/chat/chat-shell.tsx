@@ -154,6 +154,7 @@ export function ChatShell() {
   const sessionContext: AgentSessionContext =
     activeSession?.sessionContext ?? {};
   const pendingDraft = sessionContext.pendingDraft;
+  const pendingWorkspaceSwitch = sessionContext.pendingWorkspaceSwitch;
 
   useEffect(() => {
     void loadWorkbench();
@@ -374,6 +375,20 @@ export function ChatShell() {
     await submitTask(task, displayTask);
   }
 
+  async function handleWorkspaceSwitchDecision(decision: "approve" | "cancel") {
+    if (!pendingWorkspaceSwitch) {
+      return;
+    }
+
+    const task =
+      decision === "approve"
+        ? `CONFIRM_WORKSPACE_SWITCH ${pendingWorkspaceSwitch.id}`
+        : `CANCEL_WORKSPACE_SWITCH ${pendingWorkspaceSwitch.id}`;
+    const displayTask = decision === "approve" ? "YES" : "NO";
+
+    await submitTask(task, displayTask);
+  }
+
   async function createProjectFromPrompt() {
     if (isLoading) {
       return;
@@ -561,6 +576,7 @@ export function ChatShell() {
               <h2>{activeSession?.title ?? "No session"}</h2>
               <p className="session-subtitle">
                 {formatActiveWorkspacePath(activeProject, sessionContext)}
+                {sessionContext.readOnly ? " | read-only" : ""}
               </p>
             </div>
           </div>
@@ -625,6 +641,34 @@ export function ChatShell() {
                   type="button"
                   disabled={isLoading}
                   onClick={() => void handleDraftDecision("cancel")}
+                >
+                  NO
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {pendingWorkspaceSwitch ? (
+            <div className="draft-decision-panel">
+              <p className="draft-decision-copy">
+                Switch this session to{" "}
+                <strong>{pendingWorkspaceSwitch.workspacePath}</strong>
+                {pendingWorkspaceSwitch.readOnly ? " in read-only mode" : ""}?
+              </p>
+              <div className="draft-decision-row">
+                <button
+                  className="decision-button yes"
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => void handleWorkspaceSwitchDecision("approve")}
+                >
+                  YES
+                </button>
+                <button
+                  className="decision-button no"
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => void handleWorkspaceSwitchDecision("cancel")}
                 >
                   NO
                 </button>

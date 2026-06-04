@@ -396,16 +396,49 @@ function buildMessagesWithToolRuns(baseMessages: LlmMessage[], toolRuns: ToolRun
 
 function isFileModificationRequest(task: string) {
   return (
-    /(modify|edit|update|change|append|replace|rewrite|revise)/i.test(task) ||
+    /(modify|edit|update|change|append|replace|rewrite|revise|write|create|overwrite|delete|remove)/i.test(task) ||
     /(修改|编辑|更新|改动|追加|替换|重写|删除|增加)/u.test(task)
   );
 }
+function createReadOnlyBlockedResponse(
+  sessionContext: AgentSessionContext,
+): AgentResponse {
+  return {
+    message: createMessage(
+      [
+        "Current session is read-only, so I cannot modify files.",
+        "",
+        "Exit read-only mode before asking me to write, replace, create, or delete files.",
+      ].join("\n"),
+    ),
+    sessionContext,
+    steps: [
+      createStep(
+        "perceive",
+        "Perceive",
+        "Read a request that would modify files while this session is read-only.",
+      ),
+      createStep(
+        "think",
+        "Think",
+        "Read-only mode disables write_file and replace_text for this session.",
+      ),
+      createStep(
+        "act",
+        "Act",
+        "Stop before modifying files and tell the user how to continue.",
+      ),
+    ],
+  };
+}
+
 async function think(
   context: AgentContext,
   perception: PerceptionResult,
   toolRuns: ToolRun[],
 ): Promise<ThoughtResult> {
-  const availableTools = listTools();
+  const readOnly = context.sessionContext.readOnly === true;
+  const availableTools = listTools({ readOnly });
   const roundNumber = toolRuns.length + 1;
   const remainingToolCalls = getRemainingToolCalls(toolRuns);
   const plan = buildThoughtPlan(toolRuns, remainingToolCalls);
@@ -505,6 +538,9 @@ async function think(
             "You may request at most one tool in each reply.",
             `The full user request may use at most ${MAX_TOOL_CALLS} tool calls total.`,
             buildPlannerBudgetInstruction(toolRuns, remainingToolCalls),
+            readOnly
+              ? "This session is read-only. Do not modify files. The write_file and replace_text tools are unavailable."
+              : "",
             "If the user wants to modify an existing file, first use read_file to get the current content.",
             "If the user asks for one exact text replacement inside an existing file, prefer replace_text after read_file.",
             "If the user asks to create, edit, or overwrite a file and the change is broader than one exact replacement, prefer the write_file tool.",
@@ -554,6 +590,7 @@ async function think(
       ],
       toolRuns,
     ),
+    context.toolNames,
   );
 
   const normalizedToolInput = plannerReply.toolCall
@@ -603,6 +640,28 @@ async function thinkAfterReadForModification(
   roundNumber: number,
   issuePlanText?: string | null,
 ): Promise<ThoughtResult> {
+  if (context.sessionContext.readOnly) {
+    return {
+      assistantMessage: null,
+      directAnswer:
+        "Current session is read-only, so I cannot prepare a file modification draft. Exit read-only mode before asking me to modify files.",
+      nextAction: "Return a read-only mode refusal instead of preparing a write draft.",
+      plan: [
+        "Review the existing file content.",
+        "Notice that this session is read-only.",
+        "Stop before preparing a write draft.",
+      ],
+      toolCallId: null,
+      toolName: null,
+      toolInput: null,
+      step: createStep(
+        `think-${roundNumber}`,
+        "Think",
+        "This session is read-only, so file modification tools are disabled.",
+      ),
+    };
+  }
+
   const reply = await callModelForToolDecision(
     context.model,
     buildMessagesWithToolRuns(
@@ -910,12 +969,25 @@ export async function runAgent(
     ...normalizedSessionContext,
     pendingDraft: normalizedSessionContext.pendingDraft ?? null,
     projectId: options.projectId ?? normalizedSessionContext.projectId ?? null,
+    readOnly: normalizedSessionContext.readOnly === true,
     sessionId: options.sessionId ?? normalizedSessionContext.sessionId ?? null,
   };
   const exactWriteCommand = parseWriteCommand(task);
   const draftLifecycleAction = exactWriteCommand
     ? null
     : parseDraftLifecycleAction(task);
+
+  if (
+    effectiveSessionContext.readOnly &&
+    exactWriteCommand?.type === "approve" &&
+    effectiveSessionContext.pendingDraft
+  ) {
+    return finishWithLogging(
+      createReadOnlyBlockedResponse(effectiveSessionContext),
+      true,
+      0,
+    );
+  }
 
   const writeApprovalResult = await handleWriteApproval(
     task,
@@ -1015,6 +1087,14 @@ export async function runAgent(
     draftLifecycleAction === "approve" &&
     effectiveSessionContext.pendingDraft
   ) {
+    if (effectiveSessionContext.readOnly) {
+      return finishWithLogging(
+        createReadOnlyBlockedResponse(effectiveSessionContext),
+        true,
+        0,
+      );
+    }
+
     const approvalResult = await handleWriteApproval(
       `${APPROVE_WRITE_COMMAND} ${effectiveSessionContext.pendingDraft.id}`,
       effectiveSessionContext.pendingDraft,
@@ -1103,6 +1183,17 @@ export async function runAgent(
     );
   }
 
+  if (
+    effectiveSessionContext.readOnly &&
+    isFileModificationRequest(task)
+  ) {
+    return finishWithLogging(
+      createReadOnlyBlockedResponse(effectiveSessionContext),
+      true,
+      0,
+    );
+  }
+
   if (!process.env.DEEPSEEK_API_KEY) {
     throw new Error("Missing DEEPSEEK_API_KEY.");
   }
@@ -1119,7 +1210,9 @@ export async function runAgent(
     model,
     recentConversation: preparedConversationContext.recentConversation,
     sessionContext: preparedConversationContext.sessionContext,
-    toolNames: listTools().map((tool) => tool.name),
+    toolNames: listTools({
+      readOnly: preparedConversationContext.sessionContext.readOnly === true,
+    }).map((tool) => tool.name),
   };
 
   const steps: AgentStep[] = [];
@@ -1235,6 +1328,9 @@ export async function runAgent(
                 },
               },
             ],
+          },
+          {
+            readOnly: context.sessionContext.readOnly === true,
           },
         );
 
