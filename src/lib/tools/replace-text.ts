@@ -230,4 +230,12 @@ export const replaceTextTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeReplaceText,
+  onResult(_goal, result) {
+    return result.draft
+      ? {
+          type: "immediate",
+          message: result.content,
+        }
+      : null;
+  },
 };

@@ -5,6 +5,11 @@ import {
 } from "@/lib/agent/tool-run-types";
 import type { PlannedToolCall } from "@/lib/agent/model-client";
 
+type DirectToolPlanRule = {
+  derive: (goal: string) => DirectToolPlan | null;
+  match: (goal: string) => boolean;
+};
+
 function extractUrlFromTask(task: string) {
   const match = task.match(/https?:\/\/[^\s)>"']+|www\.[^\s)>"']+/i);
   return match?.[0]?.trim() ?? null;
@@ -381,6 +386,41 @@ export function derivePastedIssuePlanToolCall(
       issue_text: cleanTask,
     },
   };
+}
+
+const directToolPlanRules: DirectToolPlanRule[] = [
+  {
+    match: (goal) => !!extractUrlFromTask(goal) && !!deriveClickSelectorFromTask(goal),
+    derive: deriveDirectClickToolCall,
+  },
+  {
+    match: (goal) => !!derivePastedIssuePlanToolCall(goal),
+    derive: derivePastedIssuePlanToolCall,
+  },
+  {
+    match: (goal) => !!deriveDirectGitInspectToolCall(goal),
+    derive: deriveDirectGitInspectToolCall,
+  },
+  {
+    match: (goal) => !!deriveDirectSafeCommandToolCall(goal),
+    derive: deriveDirectSafeCommandToolCall,
+  },
+];
+
+export function deriveDirectToolPlan(goal: string) {
+  for (const rule of directToolPlanRules) {
+    if (!rule.match(goal)) {
+      continue;
+    }
+
+    const plan = rule.derive(goal);
+
+    if (plan) {
+      return plan;
+    }
+  }
+
+  return null;
 }
 
 function stripLeadingMatch(text: string, patterns: RegExp[]) {

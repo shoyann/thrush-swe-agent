@@ -157,4 +157,12 @@ export const writeFileTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeWriteFile,
+  onResult(_goal, result) {
+    return result.draft
+      ? {
+          type: "immediate",
+          message: result.content,
+        }
+      : null;
+  },
 };

@@ -6,6 +6,7 @@ import type {
 } from "@/lib/tools/types";
 import { launchPlaywrightChromium } from "@/lib/tools/playwright-browser";
 import { assertSafeUrl } from "@/lib/tools/url-guard";
+import { formatClickPageAnswer } from "@/lib/agent/page-result-format";
 
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const CLICK_TIMEOUT_MS = 8_000;
@@ -268,4 +269,21 @@ export const clickPageTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeClickPage,
+  onResult(goal, result) {
+    if (!result.ok) {
+      return {
+        type: "immediate",
+        message: result.content,
+      };
+    }
+
+    const formattedClickPageAnswer = formatClickPageAnswer(goal, result.content);
+
+    return formattedClickPageAnswer
+      ? {
+          type: "immediate",
+          message: formattedClickPageAnswer,
+        }
+      : null;
+  },
 };

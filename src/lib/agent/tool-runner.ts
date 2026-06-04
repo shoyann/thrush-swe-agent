@@ -38,6 +38,7 @@ export async function runToolCall(
         ].join("\n"),
       },
       startedAt,
+      tool,
       toolCallId,
     };
   }
@@ -54,6 +55,7 @@ export async function runToolCall(
     inputText,
     result,
     startedAt,
+    tool,
     toolCallId,
   };
 }

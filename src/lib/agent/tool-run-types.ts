@@ -1,4 +1,8 @@
-import type { ToolExecutionInput, ToolResult } from "@/lib/tools/types";
+import type {
+  AgentTool,
+  ToolExecutionInput,
+  ToolRun as ToolRunBase,
+} from "@/lib/tools/types";
 import type { LlmMessage } from "@/lib/agent/model-client";
 
 export type DirectToolPlan = {
@@ -7,15 +11,12 @@ export type DirectToolPlan = {
   name: string;
 };
 
-export type ToolRun = {
+export type ToolRun = ToolRunBase & {
   assistantMessage: LlmMessage;
   durationMs?: number;
   finishedAt?: number;
-  input: ToolExecutionInput;
-  inputText: string;
-  name: string;
-  result: ToolResult;
   startedAt?: number;
+  tool: AgentTool;
   toolCallId: string;
 };
 

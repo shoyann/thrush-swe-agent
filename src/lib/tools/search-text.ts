@@ -8,6 +8,10 @@ import type {
   ToolResult,
 } from "@/lib/tools/types";
 import { getWorkspaceRoot, resolveWorkspacePath } from "@/lib/tools/workspace-path";
+import {
+  formatIssueInvestigationAnswer,
+  isIssueDrivenReadForDraft,
+} from "@/lib/agent/issue-flow";
 
 const execFileAsync = promisify(execFile);
 const MAX_RESULTS = 50;
@@ -213,4 +217,14 @@ export const searchTextTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeSearchText,
+  onResult(goal, _result, toolRuns) {
+    const issueInvestigationAnswer = formatIssueInvestigationAnswer(goal, toolRuns);
+
+    return issueInvestigationAnswer && !isIssueDrivenReadForDraft(toolRuns)
+      ? {
+          type: "immediate",
+          message: issueInvestigationAnswer,
+        }
+      : null;
+  },
 };
