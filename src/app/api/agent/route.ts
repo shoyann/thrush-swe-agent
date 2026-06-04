@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent/run-agent";
 import {
+  getEffectiveWorkspacePath,
+  handleWorkspaceSwitchTask,
+} from "@/lib/agent/workspace-switch";
+import {
   appendMessage,
   createCheckpoint,
   getSessionProject,
@@ -16,6 +20,27 @@ export const runtime = "nodejs";
 
 function serializeStreamEvent(event: AgentStreamEvent | { type: "error"; message: string }) {
   return encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function createImmediateStream(events: AgentStreamEvent[]) {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(serializeStreamEvent(event));
+        }
+
+        controller.close();
+      },
+    }),
+    {
+      headers: {
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "Content-Type": "text/event-stream; charset=utf-8",
+      },
+    },
+  );
 }
 
 export async function POST(request: Request) {
@@ -87,12 +112,64 @@ export async function POST(request: Request) {
     projectId: project.id,
     sessionId,
   };
+  const workspaceSwitchResult = handleWorkspaceSwitchTask({
+    projectId: project.id,
+    projectWorkspacePath: project.workspacePath,
+    sessionContext,
+    sessionId,
+    task,
+  });
+
+  if (workspaceSwitchResult.handled) {
+    const assistantMessage = appendMessage({
+      content: workspaceSwitchResult.message,
+      role: "assistant",
+      sessionId,
+    });
+
+    updateSessionState(
+      sessionId,
+      workspaceSwitchResult.sessionContext,
+      workspaceSwitchResult.steps,
+    );
+    createCheckpoint({
+      data: {
+        task,
+        sessionContext: workspaceSwitchResult.sessionContext,
+        steps: workspaceSwitchResult.steps,
+      },
+      kind: "workspace_switch_handled",
+      requestId,
+      sessionId,
+    });
+
+    const result = {
+      message: assistantMessage,
+      sessionContext: workspaceSwitchResult.sessionContext,
+      steps: workspaceSwitchResult.steps,
+    };
+
+    if (body.stream) {
+      return createImmediateStream([
+        { type: "steps", steps: result.steps },
+        { type: "message", message: result.message },
+        { type: "done", sessionContext: result.sessionContext },
+      ]);
+    }
+
+    return NextResponse.json(result);
+  }
+
+  const effectiveWorkspacePath = getEffectiveWorkspacePath(
+    sessionContext,
+    project.workspacePath,
+  );
 
   createCheckpoint({
     data: {
       task,
       projectId: project.id,
-      workspacePath: project.workspacePath,
+      workspacePath: effectiveWorkspacePath,
     },
     kind: "agent_started",
     requestId,
@@ -103,7 +180,7 @@ export async function POST(request: Request) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          const result = await withWorkspaceRoot(project.workspacePath, () =>
+          const result = await withWorkspaceRoot(effectiveWorkspacePath, () =>
             runAgent(task, messagesForAgent, sessionContext, requestId, {
               onEvent(event) {
                 controller.enqueue(serializeStreamEvent(event));
@@ -123,7 +200,7 @@ export async function POST(request: Request) {
               },
               projectId: project.id,
               sessionId,
-              workspaceRoot: project.workspacePath,
+              workspaceRoot: effectiveWorkspacePath,
             }),
           );
 
@@ -175,7 +252,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await withWorkspaceRoot(
-      project.workspacePath,
+      effectiveWorkspacePath,
       () =>
         runAgent(task, messagesForAgent, sessionContext, requestId, {
           onToolRun(toolRun) {
@@ -187,7 +264,7 @@ export async function POST(request: Request) {
           },
           projectId: project.id,
           sessionId,
-          workspaceRoot: project.workspacePath,
+          workspaceRoot: effectiveWorkspacePath,
         }),
     );
     appendMessage({

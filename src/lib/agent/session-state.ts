@@ -21,6 +21,15 @@ export function formatSessionContextForModel(
     lines.push("Pending draft id: none");
   }
 
+  if (sessionContext.pendingWorkspaceSwitch) {
+    lines.push(`Pending workspace switch id: ${sessionContext.pendingWorkspaceSwitch.id}`);
+    lines.push(
+      `Pending workspace switch path: ${sessionContext.pendingWorkspaceSwitch.workspacePath}`,
+    );
+  } else {
+    lines.push("Pending workspace switch id: none");
+  }
+
   lines.push(
     "Reference rules: if the user says 'that draft', prefer the pending draft. If the user says 'that file', prefer the pending draft path first, then the last read file. If the user says 'continue the last step', prefer continuing the pending draft flow; otherwise use the last tool context.",
   );

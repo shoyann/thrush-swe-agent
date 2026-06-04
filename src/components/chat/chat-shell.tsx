@@ -111,6 +111,16 @@ function formatWorkspacePath(project: ProjectSummary | null) {
   return project?.workspacePath.replace(/\\/g, "/") ?? "No workspace selected";
 }
 
+function formatActiveWorkspacePath(
+  project: ProjectSummary | null,
+  sessionContext: AgentSessionContext,
+) {
+  const workspacePath =
+    sessionContext.workspacePathOverride?.trim() || project?.workspacePath;
+
+  return workspacePath?.replace(/\\/g, "/") ?? "No workspace selected";
+}
+
 export function ChatShell() {
   const [snapshot, setSnapshot] = useState<WorkbenchSnapshot>({
     activeSessionId: null,
@@ -549,7 +559,9 @@ export function ChatShell() {
             <div>
               <p className="panel-kicker">Chat</p>
               <h2>{activeSession?.title ?? "No session"}</h2>
-              <p className="session-subtitle">{formatWorkspacePath(activeProject)}</p>
+              <p className="session-subtitle">
+                {formatActiveWorkspacePath(activeProject, sessionContext)}
+              </p>
             </div>
           </div>
 
