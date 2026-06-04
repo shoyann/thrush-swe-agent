@@ -7,8 +7,8 @@ import type {
   ToolCallArgs,
   ToolExecutionInput,
   ToolResult,
-} from "@/lib/tools/types";
-import { getWorkspaceRoot, resolveWorkspacePath } from "@/lib/tools/workspace-path";
+} from "./types";
+import { getWorkspaceRoot, resolveWorkspacePath } from "./workspace-path";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_LENGTH = 8_000;
@@ -276,6 +276,23 @@ function buildAllowedNpmCall(args: string[]): SafeCommandPlan {
     };
   }
 
+  if (args.length === 2 && args[0] === "run" && args[1] === "lint") {
+    if (!workspaceHasNpmScript("lint")) {
+      return {
+        ok: false,
+        message:
+          'safe_command checked package.json and did not find a "lint" script, so npm run lint is not allowed in this workspace.',
+      };
+    }
+
+    return {
+      ok: true,
+      commandText: "npm run lint",
+      executable: "npm",
+      executableArgs: ["run", "lint"],
+    };
+  }
+
   if (args.length === 1 && args[0] === "test") {
     if (!workspaceHasNpmScript("test")) {
       return {
@@ -296,7 +313,7 @@ function buildAllowedNpmCall(args: string[]): SafeCommandPlan {
   return {
     ok: false,
     message:
-      'safe_command currently allows only npm run build, or npm test when package.json includes a test script.',
+      'safe_command currently allows only npm run build, npm run lint when package.json includes a lint script, or npm test when package.json includes a test script.',
   };
 }
 
@@ -452,7 +469,7 @@ async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult
 export const safeCommandTool: AgentTool = {
   name: "safe_command",
   description:
-    "Run one whitelisted local command inside the current workspace. MVP allowlist: rg search, rg --files, git status, npm run build, and npm test only when package.json includes a test script.",
+    "Run one whitelisted local command inside the current workspace. MVP allowlist: rg search, rg --files, git status, npm run build, npm run lint only when package.json includes a lint script, and npm test only when package.json includes a test script.",
   inputSchema: {
     type: "object",
     properties: {
@@ -473,4 +490,8 @@ export const safeCommandTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeSafeCommand,
+};
+
+export const __safeCommandTestInternals = {
+  buildAllowedCommandCall,
 };

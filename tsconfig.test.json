@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "isolatedModules": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "noEmit": false,
+    "outDir": "./.test-dist",
+    "types": ["node"]
+  },
+  "include": [
+    "src/lib/tools/safe-command.ts",
+    "src/lib/tools/types.ts",
+    "src/lib/tools/workspace-path.ts",
+    "test/**/*.ts"
+  ]
+}

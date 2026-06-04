@@ -49,7 +49,6 @@ const loadingSteps: AgentStep[] = [
   },
 ];
 
-const MAX_CONTEXT_MESSAGES = 8;
 const thinkingFragments = ["top", "right", "bottom", "left"] as const;
 const agentApiSecret = process.env.NEXT_PUBLIC_AGENT_API_SECRET?.trim();
 
@@ -208,7 +207,7 @@ export function ChatShell() {
     try {
       const payload: AgentRequest = {
         task: cleanTask,
-        messages: nextMessages.slice(-MAX_CONTEXT_MESSAGES),
+        messages: nextMessages,
         sessionContext,
         stream: true,
       };

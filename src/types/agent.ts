@@ -15,6 +15,7 @@ export type PendingDraftSnapshot = {
 };
 
 export type AgentSessionContext = {
+  conversationSummary?: string | null;
   lastListedDirectoryPath?: string | null;
   lastReadFilePath?: string | null;
   lastToolInput?: string | null;

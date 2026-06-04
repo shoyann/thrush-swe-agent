@@ -210,7 +210,11 @@ function rerankResults(query: string, results: SearchResultItem[]) {
       return left.index - right.index;
     })
     .slice(0, MAX_RESULTS)
-    .map(({ index: _index, score: _score, ...result }) => result);
+    .map((result) => ({
+      description: result.description,
+      link: result.link,
+      title: result.title,
+    }));
 }
 
 function formatResults(query: string, results: DisplaySearchResultItem[]) {
@@ -228,7 +232,10 @@ function formatResults(query: string, results: DisplaySearchResultItem[]) {
 }
 
 function toDisplayResults(results: SearchResultItem[]): DisplaySearchResultItem[] {
-  return results.map(({ description: _description, ...result }) => result);
+  return results.map((result) => ({
+    link: result.link,
+    title: result.title,
+  }));
 }
 
 function parseWebSearchInput(input: ToolExecutionInput) {

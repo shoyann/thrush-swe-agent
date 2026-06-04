@@ -9,6 +9,7 @@ import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_PREVIEW_LENGTH = 12_000;
+const MAX_PATCH_EXPORT_LENGTH = 200_000;
 const GH_CLI_EXECUTABLE = process.env.GH_PATH?.trim() || "gh";
 
 type GitInspectAction =
@@ -19,6 +20,8 @@ type GitInspectAction =
   | "github_env"
   | "commit_message"
   | "pr_draft"
+  | "patch_export"
+  | "task_submit"
   | "repo_info"
   | "issue_list"
   | "issue_detail"
@@ -49,6 +52,7 @@ type GitInspectReport = {
   issuePlan: string | null;
   isGitRepository: boolean;
   message: string;
+  patchText: string | null;
   prDraftSuggestion: string | null;
   repoInfo: string | null;
   remoteEntries: string[];
@@ -56,6 +60,7 @@ type GitInspectReport = {
   summaryText: string | null;
   status: "success" | "failed" | "rejected";
   statusEntries: string[];
+  taskSubmitDraft: string | null;
   workspaceRoot: string;
 };
 
@@ -74,10 +79,12 @@ function createGitInspectReport(
     | "issueList"
     | "issuePlan"
     | "remoteEntries"
+    | "patchText"
     | "prDraftSuggestion"
     | "repoInfo"
     | "summaryText"
     | "statusEntries"
+    | "taskSubmitDraft"
   > & {
     branch?: string | null;
     commitMessageSuggestion?: string | null;
@@ -90,11 +97,13 @@ function createGitInspectReport(
     issueDetail?: string | null;
     issueList?: string | null;
     issuePlan?: string | null;
+    patchText?: string | null;
     prDraftSuggestion?: string | null;
     repoInfo?: string | null;
     remoteEntries?: string[];
     summaryText?: string | null;
     statusEntries?: string[];
+    taskSubmitDraft?: string | null;
   },
 ): GitInspectReport {
   return {
@@ -109,11 +118,13 @@ function createGitInspectReport(
     issueDetail: report.issueDetail ?? null,
     issueList: report.issueList ?? null,
     issuePlan: report.issuePlan ?? null,
+    patchText: report.patchText ?? null,
     prDraftSuggestion: report.prDraftSuggestion ?? null,
     repoInfo: report.repoInfo ?? null,
     remoteEntries: report.remoteEntries ?? [],
     summaryText: report.summaryText ?? null,
     statusEntries: report.statusEntries ?? [],
+    taskSubmitDraft: report.taskSubmitDraft ?? null,
     ...report,
   };
 }
@@ -143,10 +154,14 @@ function formatGitInspectReport(report: GitInspectReport) {
     report.issuePlan ?? "(none)",
     "repo_info:",
     report.repoInfo ?? "(none)",
+    "patch_text:",
+    report.patchText ?? "(none)",
     "pr_draft_suggestion:",
     report.prDraftSuggestion ?? "(none)",
     "summary_text:",
     report.summaryText ?? "(none)",
+    "task_submit_draft:",
+    report.taskSubmitDraft ?? "(none)",
     "github_readiness_missing:",
     report.githubReadinessMissing.length > 0
       ? report.githubReadinessMissing.join("\n")
@@ -165,7 +180,7 @@ function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput 
     return {
       ok: false,
       message:
-        'git_inspect expects object input like {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, {"action":"pr_draft"}, {"action":"repo_info"}, {"action":"issue_list"}, {"action":"issue_detail","issue_number":123}, or {"action":"issue_plan","issue_text":"..."}; plain string input is not supported.',
+        'git_inspect expects object input like {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, {"action":"pr_draft"}, {"action":"patch_export"}, {"action":"task_submit"}, {"action":"repo_info"}, {"action":"issue_list"}, {"action":"issue_detail","issue_number":123}, or {"action":"issue_plan","issue_text":"..."}; plain string input is not supported.',
     };
   }
 
@@ -179,6 +194,8 @@ function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput 
     action !== "github_env" &&
     action !== "commit_message" &&
     action !== "pr_draft" &&
+    action !== "patch_export" &&
+    action !== "task_submit" &&
     action !== "repo_info" &&
     action !== "issue_list" &&
     action !== "issue_detail" &&
@@ -187,7 +204,7 @@ function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput 
     return {
       ok: false,
       message:
-        'git_inspect currently allows only {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, {"action":"pr_draft"}, {"action":"repo_info"}, {"action":"issue_list"}, {"action":"issue_detail"}, or {"action":"issue_plan"} as input.',
+        'git_inspect currently allows only {"action":"check_repo"}, {"action":"status"}, {"action":"diff"}, {"action":"summary"}, {"action":"github_env"}, {"action":"commit_message"}, {"action":"pr_draft"}, {"action":"patch_export"}, {"action":"task_submit"}, {"action":"repo_info"}, {"action":"issue_list"}, {"action":"issue_detail"}, or {"action":"issue_plan"} as input.',
     };
   }
 
@@ -353,6 +370,69 @@ function trimDiffPreview(diffText: string) {
   }
 
   return `${diffText.slice(0, MAX_DIFF_PREVIEW_LENGTH)}\n[diff preview truncated]`;
+}
+
+function trimPatchExport(patchText: string) {
+  if (patchText.length <= MAX_PATCH_EXPORT_LENGTH) {
+    return {
+      patchText,
+      truncated: false,
+    };
+  }
+
+  return {
+    patchText: `${patchText.slice(0, MAX_PATCH_EXPORT_LENGTH)}\n[patch export truncated]`,
+    truncated: true,
+  };
+}
+
+function isMissingHeadError(error: unknown) {
+  const message = String(
+    (error as { message?: unknown })?.message ??
+      (error as { stderr?: unknown })?.stderr ??
+      "",
+  ).toLowerCase();
+
+  return (
+    message.includes("bad revision 'head'") ||
+    message.includes("ambiguous argument 'head'") ||
+    message.includes("unknown revision or path not in the working tree")
+  );
+}
+
+async function runDiffAgainstHead(
+  workspaceRoot: string,
+  diffArgs: string[],
+) {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["diff", "--no-ext-diff", ...diffArgs, "HEAD", "--"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 8 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+
+    return stdout;
+  } catch (error) {
+    if (!isMissingHeadError(error)) {
+      throw error;
+    }
+
+    const { stdout } = await execFileAsync(
+      "git",
+      ["diff", "--no-ext-diff", ...diffArgs, "--"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 8 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+
+    return stdout;
+  }
 }
 
 type ParsedRemoteEntry = {
@@ -732,6 +812,57 @@ function suggestPrDraft(
   return [title, "", ...bodyLines].join("\n");
 }
 
+function suggestTaskSubmitDraft(
+  branch: string | null,
+  statusEntries: string[],
+  diffStatLines: string[],
+  patchText: string,
+  patchTruncated: boolean,
+) {
+  if (statusEntries.length === 0) {
+    return "No task_submit draft is available because there are no local changes.";
+  }
+
+  const counts = countStatusChanges(statusEntries);
+  const changedPaths = parseChangedPaths(statusEntries);
+  const uniquePaths = [...new Set(changedPaths.map((item) => item.path))];
+  const summary = summarizeGitChanges(branch, statusEntries, diffStatLines);
+  const bodyLines = [
+    "task_submit draft",
+    "",
+    "Summary:",
+    `- ${summary}`,
+    `- Change mix: ${counts.staged} staged, ${counts.unstaged} unstaged, ${counts.untracked} untracked.`,
+  ];
+
+  if (uniquePaths.length > 0) {
+    bodyLines.push(`- Key paths: ${uniquePaths.slice(0, 8).join(", ")}`);
+  }
+
+  bodyLines.push("");
+  bodyLines.push("Testing:");
+  bodyLines.push("- Not run yet");
+  bodyLines.push("");
+  bodyLines.push("Patch:");
+
+  if (patchText) {
+    bodyLines.push("```diff");
+    bodyLines.push(patchText);
+    bodyLines.push("```");
+  } else {
+    bodyLines.push(
+      "(No tracked patch text is available. Untracked files can appear in status, but this read-only draft does not stage or commit them.)",
+    );
+  }
+
+  if (patchTruncated) {
+    bodyLines.push("");
+    bodyLines.push("Note: Patch text was truncated to keep the tool output bounded.");
+  }
+
+  return bodyLines.join("\n");
+}
+
 function formatIssueList(
   issues: Array<{
     number?: number | null;
@@ -949,6 +1080,10 @@ function pickIssueKeywordsForDisplay(keywords: string[]) {
 }
 
 function buildStructuredIssuePlan(issueText: string) {
+  if (!issueText.trim()) {
+    return buildIssuePlan(issueText);
+  }
+
   const { title, body } = extractIssueTitleAndBody(issueText);
   const candidatePaths = extractIssuePaths(issueText);
   const keywords = extractIssueKeywords(title, body);
@@ -1553,6 +1688,192 @@ async function runPrDraftAction(): Promise<ToolResult> {
       content: formatGitInspectReport(
         createGitInspectReport({
           action: "pr_draft",
+          isGitRepository: false,
+          message,
+          repositoryRoot: null,
+          status: "failed",
+          workspaceRoot,
+        }),
+      ),
+    };
+  }
+}
+
+async function loadPatchExportContext(workspaceRoot: string) {
+  const [{ stdout: statusStdout }, diffStatStdout, patchStdout] =
+    await Promise.all([
+      execFileAsync("git", ["status", "--short", "--branch"], {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      }),
+      runDiffAgainstHead(workspaceRoot, ["--stat"]),
+      runDiffAgainstHead(workspaceRoot, ["--binary"]),
+    ]);
+
+  const parsedStatus = parseGitStatusOutput(statusStdout);
+  const diffStatLines = diffStatStdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const patchExport = trimPatchExport(patchStdout.trim());
+
+  return {
+    diffStatLines,
+    parsedStatus,
+    patchExport,
+  };
+}
+
+async function runPatchExportAction(): Promise<ToolResult> {
+  const workspaceRoot = getWorkspaceRoot();
+
+  try {
+    const repositoryRoot = await getRepositoryRoot(workspaceRoot);
+    const { diffStatLines, parsedStatus, patchExport } =
+      await loadPatchExportContext(workspaceRoot);
+    const hasChanges = parsedStatus.statusEntries.length > 0;
+
+    return {
+      ok: true,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "patch_export",
+          branch: parsedStatus.branch,
+          diffPreview:
+            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no tracked diff stat",
+          isGitRepository: true,
+          message: hasChanges
+            ? patchExport.patchText
+              ? "Patch export created from local tracked changes. This action only reads git diff and does not commit or push."
+              : "Patch export completed, but no tracked patch text is available. Untracked files are listed in status but are not staged by this read-only action."
+            : "Patch export completed. The working tree is clean.",
+          patchText: patchExport.patchText || "no tracked patch text",
+          repositoryRoot,
+          status: "success",
+          statusEntries: hasChanges
+            ? parsedStatus.statusEntries
+            : ["clean working tree"],
+          summaryText: summarizeGitChanges(
+            parsedStatus.branch,
+            parsedStatus.statusEntries,
+            diffStatLines,
+          ),
+          workspaceRoot,
+        }),
+      ),
+    };
+  } catch (error) {
+    if (isNotGitRepositoryError(error)) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "patch_export",
+            isGitRepository: false,
+            message:
+              "Patch export is not available because the current workspace is not a Git repository yet.",
+            patchText: "No patch export is available because this workspace is not a Git repository yet.",
+            repositoryRoot: null,
+            status: "success",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const message =
+      (error as { message?: string })?.message ??
+      "git_inspect failed while exporting the patch text.";
+
+    return {
+      ok: false,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "patch_export",
+          isGitRepository: false,
+          message,
+          repositoryRoot: null,
+          status: "failed",
+          workspaceRoot,
+        }),
+      ),
+    };
+  }
+}
+
+async function runTaskSubmitAction(): Promise<ToolResult> {
+  const workspaceRoot = getWorkspaceRoot();
+
+  try {
+    const repositoryRoot = await getRepositoryRoot(workspaceRoot);
+    const { diffStatLines, parsedStatus, patchExport } =
+      await loadPatchExportContext(workspaceRoot);
+    const taskSubmitDraft = suggestTaskSubmitDraft(
+      parsedStatus.branch,
+      parsedStatus.statusEntries,
+      diffStatLines,
+      patchExport.patchText,
+      patchExport.truncated,
+    );
+
+    return {
+      ok: true,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "task_submit",
+          branch: parsedStatus.branch,
+          diffPreview:
+            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no tracked diff stat",
+          isGitRepository: true,
+          message:
+            "task_submit draft created from local Git facts. This action only reads status and diff; it does not commit, push, or submit anything.",
+          patchText: patchExport.patchText || "no tracked patch text",
+          repositoryRoot,
+          status: "success",
+          statusEntries:
+            parsedStatus.statusEntries.length > 0
+              ? parsedStatus.statusEntries
+              : ["clean working tree"],
+          summaryText: summarizeGitChanges(
+            parsedStatus.branch,
+            parsedStatus.statusEntries,
+            diffStatLines,
+          ),
+          taskSubmitDraft,
+          workspaceRoot,
+        }),
+      ),
+    };
+  } catch (error) {
+    if (isNotGitRepositoryError(error)) {
+      return {
+        ok: true,
+        content: formatGitInspectReport(
+          createGitInspectReport({
+            action: "task_submit",
+            isGitRepository: false,
+            message:
+              "task_submit draft is not available because the current workspace is not a Git repository yet.",
+            repositoryRoot: null,
+            status: "success",
+            taskSubmitDraft:
+              "No task_submit draft is available because this workspace is not a Git repository yet.",
+            workspaceRoot,
+          }),
+        ),
+      };
+    }
+
+    const message =
+      (error as { message?: string })?.message ??
+      "git_inspect failed while building the task_submit draft.";
+
+    return {
+      ok: false,
+      content: formatGitInspectReport(
+        createGitInspectReport({
+          action: "task_submit",
           isGitRepository: false,
           message,
           repositoryRoot: null,
@@ -2218,6 +2539,14 @@ async function executeGitInspect(input: ToolExecutionInput): Promise<ToolResult>
     return runPrDraftAction();
   }
 
+  if (parsed.action === "patch_export") {
+    return runPatchExportAction();
+  }
+
+  if (parsed.action === "task_submit") {
+    return runTaskSubmitAction();
+  }
+
   if (parsed.action === "repo_info") {
     return runRepoInfoAction();
   }
@@ -2236,14 +2565,14 @@ async function executeGitInspect(input: ToolExecutionInput): Promise<ToolResult>
 export const gitInspectTool: AgentTool = {
   name: "git_inspect",
   description:
-    "Check Git and GitHub environment facts for the current workspace. MVP actions: detect whether the workspace is inside a Git repository, read git status, read a minimal git diff preview, produce a short local change summary, inspect GitHub readiness such as remotes and gh CLI availability, suggest a commit message draft, suggest a PR draft description, read basic GitHub repository info, list repository issues, read one issue detail, and turn either pasted issue text or one GitHub issue number into a minimal execution plan.",
+    "Check Git and GitHub environment facts for the current workspace. MVP actions: detect whether the workspace is inside a Git repository, read git status, read a minimal git diff preview, produce a short local change summary, inspect GitHub readiness such as remotes and gh CLI availability, suggest a commit message draft, suggest a PR draft description, export read-only git diff patch text, draft a read-only task_submit response, read basic GitHub repository info, list repository issues, read one issue detail, and turn either pasted issue text or one GitHub issue number into a minimal execution plan.",
   inputSchema: {
     type: "object",
     properties: {
       action: {
         type: "string",
         description:
-          'Required Git inspection action. Current MVP supports "check_repo", "status", "diff", "summary", "github_env", "commit_message", "pr_draft", "repo_info", "issue_list", "issue_detail", or "issue_plan".',
+          'Required Git inspection action. Current MVP supports "check_repo", "status", "diff", "summary", "github_env", "commit_message", "pr_draft", "patch_export", "task_submit", "repo_info", "issue_list", "issue_detail", or "issue_plan".',
       },
       issue_number: {
         type: "number",
