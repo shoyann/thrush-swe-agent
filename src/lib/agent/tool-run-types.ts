@@ -9,10 +9,13 @@ export type DirectToolPlan = {
 
 export type ToolRun = {
   assistantMessage: LlmMessage;
+  durationMs?: number;
+  finishedAt?: number;
   input: ToolExecutionInput;
   inputText: string;
   name: string;
   result: ToolResult;
+  startedAt?: number;
   toolCallId: string;
 };
 

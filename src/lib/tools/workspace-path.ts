@@ -1,7 +1,13 @@
-import { existsSync, statSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 const DEFAULT_WORKSPACE_ROOT = path.resolve(process.cwd(), "data", "workspace");
+const workspaceRootStorage = new AsyncLocalStorage<string>();
+
+export function getDefaultWorkspaceRoot() {
+  return DEFAULT_WORKSPACE_ROOT;
+}
 
 function resolveConfiguredWorkspaceRoot() {
   const configuredRoot = process.env.AGENT_WORKSPACE_ROOT?.trim();
@@ -34,9 +40,19 @@ function validateWorkspaceRoot(workspaceRoot: string) {
 }
 
 export function getWorkspaceRoot() {
-  const workspaceRoot = resolveConfiguredWorkspaceRoot();
+  const workspaceRoot = workspaceRootStorage.getStore() ?? resolveConfiguredWorkspaceRoot();
   validateWorkspaceRoot(workspaceRoot);
   return workspaceRoot;
+}
+
+export async function withWorkspaceRoot<T>(
+  workspaceRoot: string,
+  callback: () => Promise<T>,
+) {
+  const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+  validateWorkspaceRoot(resolvedWorkspaceRoot);
+
+  return workspaceRootStorage.run(resolvedWorkspaceRoot, callback);
 }
 
 export function resolveWorkspacePath(input = ".") {
@@ -50,6 +66,19 @@ export function resolveWorkspacePath(input = ".") {
     path.isAbsolute(relativePath)
   ) {
     throw new Error("The requested path is outside the configured workspace.");
+  }
+
+  if (existsSync(targetPath)) {
+    const realWorkspaceRoot = realpathSync.native(workspaceRoot);
+    const realTargetPath = realpathSync.native(targetPath);
+    const realRelativePath = path.relative(realWorkspaceRoot, realTargetPath);
+
+    if (
+      realRelativePath.startsWith("..") ||
+      path.isAbsolute(realRelativePath)
+    ) {
+      throw new Error("The requested path resolves outside the configured workspace.");
+    }
   }
 
   return targetPath;

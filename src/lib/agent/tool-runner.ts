@@ -15,15 +15,20 @@ export async function runToolCall(
     throw new Error(`Tool "${toolName}" is not registered.`);
   }
 
+  const startedAt = Date.now();
   const result = await tool.execute(toolInput);
+  const finishedAt = Date.now();
   const inputText = formatToolExecutionInput(toolInput);
 
   return {
     assistantMessage,
+    durationMs: finishedAt - startedAt,
+    finishedAt,
     name: toolName,
     input: toolInput,
     inputText,
     result,
+    startedAt,
     toolCallId,
   };
 }

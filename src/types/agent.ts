@@ -21,6 +21,8 @@ export type AgentSessionContext = {
   lastToolInput?: string | null;
   lastToolName?: string | null;
   pendingDraft?: PendingDraftSnapshot | null;
+  projectId?: string | null;
+  sessionId?: string | null;
 };
 
 export type StepStatus = "idle" | "running" | "done";
@@ -34,7 +36,9 @@ export type AgentStep = {
 
 export type AgentRequest = {
   messages?: ChatMessage[];
+  projectId?: string;
   sessionContext?: AgentSessionContext;
+  sessionId?: string;
   stream?: boolean;
   task: string;
 };

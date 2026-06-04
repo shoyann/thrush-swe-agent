@@ -4,9 +4,14 @@ import type {
   AgentStreamEvent,
   ChatMessage,
 } from "@/types/agent";
+import type { ToolRun } from "@/lib/agent/tool-run-types";
 
 export type RunAgentOptions = {
   onEvent?: (event: AgentStreamEvent) => void | Promise<void>;
+  onToolRun?: (toolRun: ToolRun) => void | Promise<void>;
+  projectId?: string;
+  sessionId?: string;
+  workspaceRoot?: string;
 };
 
 export function createStep(id: string, title: string, detail: string): AgentStep {

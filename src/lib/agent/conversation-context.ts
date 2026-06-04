@@ -46,6 +46,8 @@ export function normalizeSessionContext(
     lastReadFilePath: sessionContext.lastReadFilePath?.trim() || null,
     lastToolInput: sessionContext.lastToolInput?.trim() || null,
     lastToolName: sessionContext.lastToolName?.trim() || null,
+    projectId: sessionContext.projectId?.trim() || null,
+    sessionId: sessionContext.sessionId?.trim() || null,
     pendingDraft: sessionContext.pendingDraft
       ? {
           ...sessionContext.pendingDraft,

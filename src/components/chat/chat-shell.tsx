@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useLayoutEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   AgentRequest,
   AgentSessionContext,
@@ -9,13 +16,18 @@ import type {
   AgentStreamEvent,
   ChatMessage,
 } from "@/types/agent";
+import type {
+  ProjectSummary,
+  SessionDetail,
+  WorkbenchSnapshot,
+} from "@/types/workbench";
 
 const starterMessages: ChatMessage[] = [
   {
     id: "welcome",
     role: "assistant",
     content:
-      "I am Thrush. Give me a task and I will show how the loop will work.",
+      "I am Thrush. Pick a project session, then give me a task for that workspace.",
   },
 ];
 
@@ -53,25 +65,18 @@ const thinkingFragments = ["top", "right", "bottom", "left"] as const;
 const agentApiSecret = process.env.NEXT_PUBLIC_AGENT_API_SECRET?.trim();
 
 type AgentErrorEvent = {
-  type: "error";
   message: string;
+  type: "error";
 };
 
 async function readBackendErrorMessage(response: Response) {
   const fallbackMessage = `The backend API returned HTTP ${response.status}.`;
 
   try {
-    const contentType = response.headers.get("content-type") ?? "";
-
-    if (contentType.includes("application/json")) {
-      const payload = (await response.json()) as { error?: unknown };
-      return typeof payload.error === "string" && payload.error.trim()
-        ? payload.error.trim()
-        : fallbackMessage;
-    }
-
-    const text = (await response.text()).trim();
-    return text || fallbackMessage;
+    const payload = (await response.json()) as { error?: unknown };
+    return typeof payload.error === "string" && payload.error.trim()
+      ? payload.error.trim()
+      : fallbackMessage;
   } catch {
     return fallbackMessage;
   }
@@ -102,14 +107,56 @@ function parseStreamEvent(rawChunk: string) {
   return JSON.parse(payload) as AgentStreamEvent | AgentErrorEvent;
 }
 
+function formatWorkspacePath(project: ProjectSummary | null) {
+  return project?.workspacePath.replace(/\\/g, "/") ?? "No workspace selected";
+}
+
 export function ChatShell() {
+  const [snapshot, setSnapshot] = useState<WorkbenchSnapshot>({
+    activeSessionId: null,
+    projects: [],
+  });
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<SessionDetail | null>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>(starterMessages);
-  const [sessionContext, setSessionContext] = useState<AgentSessionContext>({});
-  const [steps, setSteps] = useState<AgentStep[]>(starterSteps);
   const [isLoading, setIsLoading] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
   const messageViewportRef = useRef<HTMLDivElement | null>(null);
+
+  const activeProject = useMemo(() => {
+    if (!activeSession) {
+      return null;
+    }
+
+    return (
+      snapshot.projects.find((project) => project.id === activeSession.projectId) ??
+      null
+    );
+  }, [activeSession, snapshot.projects]);
+
+  const messages = activeSession?.messages.length
+    ? activeSession.messages
+    : starterMessages;
+  const steps = activeSession?.steps.length ? activeSession.steps : starterSteps;
+  const sessionContext: AgentSessionContext =
+    activeSession?.sessionContext ?? {};
   const pendingDraft = sessionContext.pendingDraft;
+
+  useEffect(() => {
+    void loadWorkbench();
+  }, []);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      setActiveSession(null);
+      return;
+    }
+
+    void loadSession(activeSessionId);
+  }, [activeSessionId]);
 
   useLayoutEffect(() => {
     const viewport = messageViewportRef.current;
@@ -120,19 +167,55 @@ export function ChatShell() {
     viewport.scrollTop = viewport.scrollHeight;
   }, [messages]);
 
+  async function loadWorkbench(selectSessionId?: string) {
+    const response = await fetch("/api/projects");
+    if (!response.ok) {
+      throw new Error(await readBackendErrorMessage(response));
+    }
+
+    const nextSnapshot = (await response.json()) as WorkbenchSnapshot;
+    setSnapshot(nextSnapshot);
+    setExpandedProjectIds(
+      new Set(nextSnapshot.projects.map((project) => project.id)),
+    );
+    setActiveSessionId(selectSessionId ?? nextSnapshot.activeSessionId);
+    setIsBooting(false);
+  }
+
+  async function loadSession(sessionId: string) {
+    const response = await fetch(`/api/sessions/${sessionId}`);
+    if (!response.ok) {
+      throw new Error(await readBackendErrorMessage(response));
+    }
+
+    const payload = (await response.json()) as { session: SessionDetail };
+    setActiveSession(payload.session);
+  }
+
+  function patchActiveSession(patch: Partial<SessionDetail>) {
+    setActiveSession((current) => (current ? { ...current, ...patch } : current));
+  }
+
   function applyStreamEvent(event: AgentStreamEvent | AgentErrorEvent) {
     if (event.type === "steps") {
-      setSteps(event.steps);
+      patchActiveSession({ steps: event.steps });
       return;
     }
 
     if (event.type === "message") {
-      setMessages((current) => [...current, event.message]);
+      setActiveSession((current) =>
+        current
+          ? {
+              ...current,
+              messages: [...current.messages, event.message],
+            }
+          : current,
+      );
       return;
     }
 
     if (event.type === "done") {
-      setSessionContext(event.sessionContext);
+      patchActiveSession({ sessionContext: event.sessionContext });
       return;
     }
 
@@ -163,20 +246,13 @@ export function ChatShell() {
       for (const chunk of chunks) {
         const event = parseStreamEvent(chunk);
 
-        if (!event) {
-          continue;
+        if (event) {
+          applyStreamEvent(event);
         }
-
-        applyStreamEvent(event);
       }
     }
 
-    const finalChunk = buffer.trim();
-    if (!finalChunk) {
-      return;
-    }
-
-    const finalEvent = parseStreamEvent(finalChunk);
+    const finalEvent = parseStreamEvent(buffer.trim());
     if (finalEvent) {
       applyStreamEvent(finalEvent);
     }
@@ -185,31 +261,29 @@ export function ChatShell() {
   async function submitTask(task: string, displayTask = task) {
     const cleanTask = task.trim();
     const cleanDisplayTask = displayTask.trim();
-    if (!cleanTask || !cleanDisplayTask || isLoading) {
+    if (!cleanTask || !cleanDisplayTask || isLoading || !activeSession) {
       return;
     }
 
-    const timestamp = Date.now();
     const userMessage: ChatMessage = {
-      id: `user-${timestamp}`,
+      id: `local-user-${Date.now()}`,
       role: "user",
       content: cleanDisplayTask,
     };
 
-    const nextMessages = [...messages, userMessage];
-
-    setMessages(nextMessages);
-    setSteps(loadingSteps);
+    setActiveSession({
+      ...activeSession,
+      messages: [...activeSession.messages, userMessage],
+      steps: loadingSteps,
+    });
     setInput("");
-
     setIsLoading(true);
 
     try {
       const payload: AgentRequest = {
-        task: cleanTask,
-        messages: nextMessages,
-        sessionContext,
+        sessionId: activeSession.id,
         stream: true,
+        task: cleanTask,
       };
       const response = await fetch("/api/agent", {
         method: "POST",
@@ -227,41 +301,45 @@ export function ChatShell() {
       }
 
       await readAgentStream(response);
+      await loadWorkbench(activeSession.id);
     } catch (error) {
       const errorMessage = getRequestFailureMessage(error);
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: "assistant",
-          content:
-            [
-              "The request failed.",
-              errorMessage,
-            ].join("\n"),
-        },
-      ]);
-      setSteps([
-        {
-          id: "perceive",
-          title: "Perceive",
-          detail: `Tried to send the task "${cleanDisplayTask}" to the backend API.`,
-          status: "done",
-        },
-        {
-          id: "think",
-          title: "Think",
-          detail: `The request failed with this reason: ${errorMessage}`,
-          status: "done",
-        },
-        {
-          id: "act",
-          title: "Act",
-          detail: "Show an error message in the chat window.",
-          status: "done",
-        },
-      ]);
+      setActiveSession((current) =>
+        current
+          ? {
+              ...current,
+              messages: [
+                ...current.messages,
+                {
+                  id: `assistant-error-${Date.now()}`,
+                  role: "assistant",
+                  content: ["The request failed.", errorMessage].join("\n"),
+                },
+              ],
+              steps: [
+                {
+                  id: "perceive",
+                  title: "Perceive",
+                  detail: `Tried to send the task "${cleanDisplayTask}" to the backend API.`,
+                  status: "done",
+                },
+                {
+                  id: "think",
+                  title: "Think",
+                  detail: `The request failed with this reason: ${errorMessage}`,
+                  status: "done",
+                },
+                {
+                  id: "act",
+                  title: "Act",
+                  detail: "Show an error message in the chat window.",
+                  status: "done",
+                },
+              ],
+            }
+          : current,
+      );
     } finally {
       setIsLoading(false);
     }
@@ -286,6 +364,101 @@ export function ChatShell() {
     await submitTask(task, displayTask);
   }
 
+  async function createProjectFromPrompt() {
+    if (isLoading) {
+      return;
+    }
+
+    const workspacePath = window.prompt(
+      "Enter the absolute folder path for this project workspace.",
+    );
+    if (!workspacePath?.trim()) {
+      return;
+    }
+
+    const name =
+      window.prompt("Project name", workspacePath.trim().split(/[\\/]/).pop()) ??
+      "New project";
+
+    const confirmed = window.confirm(
+      `Confirm this workspace path?\n\n${workspacePath.trim()}\n\nAgent tools will be limited to this folder.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const response = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmWorkspace: true,
+        name,
+        workspacePath,
+      }),
+    });
+
+    if (!response.ok) {
+      window.alert(await readBackendErrorMessage(response));
+      return;
+    }
+
+    const payload = (await response.json()) as WorkbenchSnapshot & {
+      snapshot?: WorkbenchSnapshot;
+    };
+    const nextSnapshot = payload.snapshot ?? payload;
+    const createdSessionId =
+      nextSnapshot.projects[0]?.sessions[0]?.id ?? nextSnapshot.activeSessionId;
+
+    setSnapshot(nextSnapshot);
+    setActiveSessionId(createdSessionId ?? null);
+  }
+
+  async function createSessionForProject(projectId: string) {
+    if (isLoading) {
+      return;
+    }
+
+    const response = await fetch(`/api/projects/${projectId}/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New session" }),
+    });
+
+    if (!response.ok) {
+      window.alert(await readBackendErrorMessage(response));
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      session: SessionDetail;
+      snapshot: WorkbenchSnapshot;
+    };
+    setSnapshot(payload.snapshot);
+    setActiveSessionId(payload.session.id);
+  }
+
+  function toggleProject(projectId: string) {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+
+      return next;
+    });
+  }
+
+  function selectSession(sessionId: string) {
+    if (isLoading || sessionId === activeSessionId) {
+      return;
+    }
+
+    setActiveSessionId(sessionId);
+  }
+
   return (
     <main className="app-shell">
       <header className="brand-bar" aria-label="Thrush brand">
@@ -301,30 +474,103 @@ export function ChatShell() {
         </div>
         <div className="brand-copy">
           <p className="brand-name">Thrush</p>
-          <p className="brand-tagline">Agent workspace</p>
+          <p className="brand-tagline">Project session workbench</p>
         </div>
       </header>
 
-      <section className="workspace-grid">
-        <div className="panel chat-panel">
+      <section className="workbench-grid">
+        <aside className="panel sidebar-panel">
+          <div className="sidebar-header">
+            <div>
+              <p className="panel-kicker">Projects</p>
+              <h2>Workspaces</h2>
+            </div>
+            <button
+              className="small-button"
+              type="button"
+              disabled={isLoading}
+              onClick={() => void createProjectFromPrompt()}
+            >
+              + Project
+            </button>
+          </div>
+
+          <div className="project-list">
+            {snapshot.projects.map((project) => {
+              const isExpanded = expandedProjectIds.has(project.id);
+
+              return (
+                <article key={project.id} className="project-group">
+                  <button
+                    className="project-row"
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => toggleProject(project.id)}
+                  >
+                    <span>{isExpanded ? "v" : ">"}</span>
+                    <span className="project-title">{project.name}</span>
+                  </button>
+                  <p className="workspace-path">{formatWorkspacePath(project)}</p>
+
+                  {isExpanded ? (
+                    <div className="session-list">
+                      {project.sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          className={`session-row ${
+                            session.id === activeSessionId ? "active" : ""
+                          }`}
+                          type="button"
+                          disabled={isLoading}
+                          onClick={() => selectSession(session.id)}
+                        >
+                          {session.title}
+                        </button>
+                      ))}
+
+                      <button
+                        className="new-session-button"
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => void createSessionForProject(project.id)}
+                      >
+                        + Session
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        </aside>
+
+        <section className="panel chat-panel">
           <div className="panel-header">
             <div>
               <p className="panel-kicker">Chat</p>
-              <h2>Task feed</h2>
+              <h2>{activeSession?.title ?? "No session"}</h2>
+              <p className="session-subtitle">{formatWorkspacePath(activeProject)}</p>
             </div>
           </div>
 
           <div ref={messageViewportRef} className="message-viewport">
             <div className="message-list">
-              {messages.map((message) => (
-                <article
-                  key={message.id}
-                  className={`message-bubble ${message.role}`}
-                >
-                  <p className="message-role">{message.role}</p>
-                  <p>{message.content}</p>
+              {isBooting ? (
+                <article className="message-bubble assistant">
+                  <p className="message-role">assistant</p>
+                  <p>Loading workbench...</p>
                 </article>
-              ))}
+              ) : (
+                messages.map((message) => (
+                  <article
+                    key={message.id}
+                    className={`message-bubble ${message.role}`}
+                  >
+                    <p className="message-role">{message.role}</p>
+                    <p>{message.content}</p>
+                  </article>
+                ))
+              )}
 
               {isLoading ? (
                 <article className="message-bubble assistant thinking-bubble">
@@ -383,17 +629,21 @@ export function ChatShell() {
                 id="task-input"
                 className="composer-input"
                 rows={3}
-                disabled={isLoading}
+                disabled={isLoading || !activeSession}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="Example: read the README, then suggest the first 3 files I should create."
+                placeholder="Example: read the README, then summarize it."
               />
-              <button className="composer-button" type="submit" disabled={isLoading}>
+              <button
+                className="composer-button"
+                type="submit"
+                disabled={isLoading || !activeSession}
+              >
                 {isLoading ? "Sending..." : "Send task"}
               </button>
             </div>
           </form>
-        </div>
+        </section>
 
         <aside className="panel trace-panel">
           <div className="panel-header">
@@ -405,10 +655,7 @@ export function ChatShell() {
 
           <div className="step-list">
             {steps.map((step) => (
-              <article
-                key={step.id}
-                className={`step-card ${step.status}`}
-              >
+              <article key={step.id} className={`step-card ${step.status}`}>
                 <div className="step-card-content">
                   <div className="step-topline">
                     <h3>{step.title}</h3>

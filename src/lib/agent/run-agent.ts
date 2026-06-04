@@ -5,14 +5,11 @@ import type {
   ChatMessage,
 } from "@/types/agent";
 import { listTools } from "@/lib/tools/tool-registry";
+import { withWorkspaceRoot } from "@/lib/tools/workspace-path";
 import type {
   ToolCallArgs,
   ToolExecutionInput,
 } from "@/lib/tools/types";
-import {
-  getPendingWriteDraft,
-  savePendingWriteDraft,
-} from "@/lib/tools/pending-write";
 import { createLogger } from "@/lib/logger";
 import {
   formatConversationForModel,
@@ -886,6 +883,7 @@ export async function runAgent(
   options: RunAgentOptions = {},
 ): Promise<AgentResponse> {
   const onEvent = options.onEvent;
+  const onToolRun = options.onToolRun;
   const finish = async (response: AgentResponse, includeSteps: boolean) =>
     finishAgentRun(response, onEvent, includeSteps);
   const logger = createLogger(requestId);
@@ -908,17 +906,21 @@ export async function runAgent(
   };
 
   const normalizedSessionContext = normalizeSessionContext(sessionContext);
-  const backendPendingDraft = getPendingWriteDraft();
   const effectiveSessionContext: AgentSessionContext = {
     ...normalizedSessionContext,
-    pendingDraft: backendPendingDraft ?? null,
+    pendingDraft: normalizedSessionContext.pendingDraft ?? null,
+    projectId: options.projectId ?? normalizedSessionContext.projectId ?? null,
+    sessionId: options.sessionId ?? normalizedSessionContext.sessionId ?? null,
   };
   const exactWriteCommand = parseWriteCommand(task);
   const draftLifecycleAction = exactWriteCommand
     ? null
     : parseDraftLifecycleAction(task);
 
-  const writeApprovalResult = await handleWriteApproval(task);
+  const writeApprovalResult = await handleWriteApproval(
+    task,
+    effectiveSessionContext.pendingDraft ?? null,
+  );
   if (writeApprovalResult) {
     return finishWithLogging(
       {
@@ -933,7 +935,7 @@ export async function runAgent(
     );
   }
 
-  if (draftLifecycleAction && !backendPendingDraft) {
+  if (draftLifecycleAction && !effectiveSessionContext.pendingDraft) {
     return finishWithLogging(
       {
         message: createMessage(
@@ -968,7 +970,7 @@ export async function runAgent(
   }
 
   if (
-    backendPendingDraft &&
+    effectiveSessionContext.pendingDraft &&
     !draftLifecycleAction &&
     isAmbiguousDraftConfirmation(task)
   ) {
@@ -977,11 +979,11 @@ export async function runAgent(
         message: createMessage(
           [
             "I found a pending draft, but your confirmation word was too vague.",
-            `Draft id: ${backendPendingDraft.id}`,
-            `Target path: ${backendPendingDraft.path}`,
-            `If you want to write it, say: ${APPROVE_WRITE_COMMAND} ${backendPendingDraft.id}`,
+            `Draft id: ${effectiveSessionContext.pendingDraft.id}`,
+            `Target path: ${effectiveSessionContext.pendingDraft.path}`,
+            `If you want to write it, say: ${APPROVE_WRITE_COMMAND} ${effectiveSessionContext.pendingDraft.id}`,
             `Or simply reply: approve / 批准`,
-            `If you want to discard it, say: ${CANCEL_WRITE_COMMAND} ${backendPendingDraft.id}`,
+            `If you want to discard it, say: ${CANCEL_WRITE_COMMAND} ${effectiveSessionContext.pendingDraft.id}`,
             `Or simply reply: cancel / 取消`,
           ].join("\n"),
         ),
@@ -1011,10 +1013,11 @@ export async function runAgent(
 
   if (
     draftLifecycleAction === "approve" &&
-    backendPendingDraft
+    effectiveSessionContext.pendingDraft
   ) {
     const approvalResult = await handleWriteApproval(
-      `${APPROVE_WRITE_COMMAND} ${backendPendingDraft.id}`,
+      `${APPROVE_WRITE_COMMAND} ${effectiveSessionContext.pendingDraft.id}`,
+      effectiveSessionContext.pendingDraft,
     );
 
     if (!approvalResult) {
@@ -1036,10 +1039,11 @@ export async function runAgent(
 
   if (
     draftLifecycleAction === "cancel" &&
-    backendPendingDraft
+    effectiveSessionContext.pendingDraft
   ) {
     const cancelResult = await handleWriteApproval(
-      `${CANCEL_WRITE_COMMAND} ${backendPendingDraft.id}`,
+      `${CANCEL_WRITE_COMMAND} ${effectiveSessionContext.pendingDraft.id}`,
+      effectiveSessionContext.pendingDraft,
     );
 
     if (!cancelResult) {
@@ -1209,26 +1213,34 @@ export async function runAgent(
 
     let toolRun: ToolRun;
     try {
-      toolRun = await runToolCall(
-        thought.toolName,
-        thought.toolInput,
-        thought.toolCallId ?? createSyntheticToolCallId(),
-        thought.assistantMessage ?? {
-          role: "assistant",
-          content: "",
-          reasoning_content: "",
-          tool_calls: [
-            {
-              id: thought.toolCallId ?? createSyntheticToolCallId(),
-              type: "function",
-              function: {
-                name: thought.toolName,
-                arguments: formatToolExecutionInput(thought.toolInput),
+      const toolName = thought.toolName;
+      const toolInput = thought.toolInput;
+      const toolCallId = thought.toolCallId ?? createSyntheticToolCallId();
+      const runCurrentTool = () =>
+        runToolCall(
+          toolName,
+          toolInput,
+          toolCallId,
+          thought.assistantMessage ?? {
+            role: "assistant",
+            content: "",
+            reasoning_content: "",
+            tool_calls: [
+              {
+                id: toolCallId,
+                type: "function",
+                function: {
+                  name: toolName,
+                  arguments: formatToolExecutionInput(toolInput),
+                },
               },
-            },
-          ],
-        },
-      );
+            ],
+          },
+        );
+
+      toolRun = options.workspaceRoot
+        ? await withWorkspaceRoot(options.workspaceRoot, runCurrentTool)
+        : await runCurrentTool();
       logger.info("tool call completed", {
         toolName: thought.toolName,
         succeeded: toolRun.result.ok,
@@ -1242,6 +1254,7 @@ export async function runAgent(
     }
 
     toolRuns.push(toolRun);
+    await onToolRun?.(toolRun);
 
     await pushStep(
       createStep(
@@ -1253,10 +1266,6 @@ export async function runAgent(
 
     const immediateOutcome = getImmediateToolOutcome(perception.goal, toolRuns);
     if (immediateOutcome) {
-      if (toolRun.result.draft) {
-        savePendingWriteDraft(toolRun.result.draft);
-      }
-
       await replaceLastStep(
         createStep(`act-${roundNumber}`, "Act", immediateOutcome.actDetail),
       );
