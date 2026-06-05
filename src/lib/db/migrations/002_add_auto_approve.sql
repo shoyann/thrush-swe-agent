@@ -1,0 +1,2 @@
+ALTER TABLE sessions
+  ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0;

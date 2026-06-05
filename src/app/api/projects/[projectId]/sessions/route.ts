@@ -8,7 +8,7 @@ export async function POST(
   context: { params: Promise<{ projectId: string }> },
 ) {
   const { projectId } = await context.params;
-  let body: { title?: unknown } = {};
+  let body: { autoApprove?: unknown; title?: unknown } = {};
 
   try {
     body = await request.json();
@@ -22,6 +22,9 @@ export async function POST(
       typeof body.title === "string" && body.title.trim()
         ? body.title.trim()
         : "New session",
+      {
+        autoApprove: body.autoApprove === true,
+      },
     );
 
     return NextResponse.json({
