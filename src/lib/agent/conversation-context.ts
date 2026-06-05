@@ -1,5 +1,6 @@
 import type { AgentSessionContext, ChatMessage } from "@/types/agent";
 import { callModelForText } from "@/lib/agent/model-client";
+import { normalizeMaxToolCalls } from "@/lib/agent/tool-run-types";
 
 export const MAX_CONTEXT_MESSAGES = 8;
 
@@ -47,6 +48,8 @@ export function normalizeSessionContext(
     lastReadFilePath: sessionContext.lastReadFilePath?.trim() || null,
     lastToolInput: sessionContext.lastToolInput?.trim() || null,
     lastToolName: sessionContext.lastToolName?.trim() || null,
+    maxToolCalls:
+      normalizeMaxToolCalls(sessionContext.maxToolCalls) ?? undefined,
     projectId: sessionContext.projectId?.trim() || null,
     readOnly: sessionContext.readOnly === true,
     sessionId: sessionContext.sessionId?.trim() || null,

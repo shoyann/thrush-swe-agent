@@ -10,8 +10,13 @@ import { withWorkspaceRoot } from "@/lib/tools/workspace-path";
 import {
   normalizeSessionContext,
   prepareConversationContext,
+  formatConversationForModel,
+  formatConversationSummaryForModel,
 } from "@/lib/agent/conversation-context";
-import { getConfiguredModelName } from "@/lib/agent/model-client";
+import {
+  callModelForText,
+  getConfiguredModelName,
+} from "@/lib/agent/model-client";
 import {
   createMessage,
   createStep,
@@ -19,15 +24,21 @@ import {
   finishAgentRun,
   type RunAgentOptions,
 } from "@/lib/agent/agent-response";
-import { formatToolExecutionInput } from "@/lib/agent/tool-args";
+import {
+  formatToolExecutionInput,
+  formatToolRunsForModel,
+} from "@/lib/agent/tool-args";
 import {
   APPROVE_WRITE_COMMAND,
   CANCEL_WRITE_COMMAND,
-  MAX_TOOL_CALLS,
   createSyntheticToolCallId,
+  getEffectiveMaxToolCalls,
   type ToolRun,
 } from "@/lib/agent/tool-run-types";
-import { buildNextSessionContext } from "@/lib/agent/session-state";
+import {
+  buildNextSessionContext,
+  formatSessionContextForModel,
+} from "@/lib/agent/session-state";
 import {
   handleAutoWriteApproval,
   handleWriteApproval,
@@ -45,6 +56,75 @@ import {
   thinkStrategies,
   type AgentContext,
 } from "@/lib/agent/agent-thinking";
+
+type TaskCompletionJudgment = {
+  done: boolean;
+  reason: string;
+};
+
+function parseTaskCompletionJudgment(content: string): TaskCompletionJudgment {
+  const jsonText = content.match(/\{[\s\S]*\}/)?.[0] ?? content;
+
+  try {
+    const parsed = JSON.parse(jsonText) as {
+      done?: unknown;
+      reason?: unknown;
+    };
+
+    return {
+      done: parsed.done === true,
+      reason:
+        typeof parsed.reason === "string" && parsed.reason.trim()
+          ? parsed.reason.trim()
+          : "The completion judge did not include a reason.",
+    };
+  } catch {
+    return {
+      done: false,
+      reason: "The completion judge did not return valid JSON.",
+    };
+  }
+}
+
+async function judgeTaskCompletion(
+  context: AgentContext,
+  goal: string,
+  toolRuns: ToolRun[],
+): Promise<TaskCompletionJudgment> {
+  const response = await callModelForText(context.model, [
+    {
+      role: "system",
+      content: [
+        "You are the completion judge for a stripped-down coding agent.",
+        "Decide whether the original user task is complete using only the completed tool results and session context.",
+        "Return only valid JSON with this exact shape: {\"done\": boolean, \"reason\": string}.",
+        "Use done=true only when the user can receive a final answer now without another tool call.",
+        "Use done=false if another tool call is still needed, if a tool failed and recovery is possible, or if the gathered information is not enough.",
+        "If the user asked to modify files, the task is not complete after only reading files.",
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        "Older conversation summary:",
+        formatConversationSummaryForModel(context.sessionContext),
+        "",
+        "Recent conversation:",
+        formatConversationForModel(context.recentConversation),
+        "",
+        "Session reference hints:",
+        formatSessionContextForModel(context.sessionContext),
+        "",
+        `Original task: ${goal}`,
+        "",
+        "Completed tool results:",
+        formatToolRunsForModel(toolRuns),
+      ].join("\n"),
+    },
+  ]);
+
+  return parseTaskCompletionJudgment(response.content);
+}
 
 function createReadOnlyBlockedResponse(
   sessionContext: AgentSessionContext,
@@ -112,6 +192,7 @@ export async function runAgent(
   const effectiveSessionContext: AgentSessionContext = {
     ...normalizedSessionContext,
     autoApprove: normalizedSessionContext.autoApprove === true,
+    maxToolCalls: normalizedSessionContext.maxToolCalls,
     pendingDraft: normalizedSessionContext.pendingDraft ?? null,
     projectId: options.projectId ?? normalizedSessionContext.projectId ?? null,
     readOnly: normalizedSessionContext.readOnly === true,
@@ -384,6 +465,7 @@ export async function runAgent(
 
   while (true) {
     const roundNumber = toolRuns.length + 1;
+    const maxToolCalls = getEffectiveMaxToolCalls(context.sessionContext);
     logger.info("agent loop iteration start", { loopCount: roundNumber });
     const strategy = thinkStrategies.find((strategy) =>
       strategy.match(toolRuns, perception.goal),
@@ -536,7 +618,46 @@ export async function runAgent(
       );
     }
 
-    if (toolRuns.length >= MAX_TOOL_CALLS) {
+    const completionJudgment = await judgeTaskCompletion(
+      context,
+      perception.goal,
+      toolRuns,
+    );
+    await pushStep(
+      createStep(
+        `think-completion-${roundNumber}`,
+        "Think",
+        `Completion check after ${toolRuns.length} tool call${toolRuns.length === 1 ? "" : "s"}: ${completionJudgment.done ? "done" : "continue"}. Reason: ${completionJudgment.reason}`,
+      ),
+    );
+
+    if (completionJudgment.done) {
+      const finalReply = await answerWithToolResults(
+        context,
+        perception.goal,
+        toolRuns,
+      );
+
+      await pushStep(
+        createStep(
+          `act-final-${roundNumber}`,
+          "Act",
+          "Return the final answer because the completion judge marked the task as done.",
+        ),
+      );
+
+      return finishWithLogging(
+        {
+          message: createMessage(finalReply.content, finalReply.reasoning_content),
+          sessionContext: buildNextSessionContext(context.sessionContext, toolRuns),
+          steps,
+        },
+        false,
+        toolRuns.length,
+      );
+    }
+
+    if (toolRuns.length >= maxToolCalls) {
       const finalReply = await answerWithToolResults(
         context,
         perception.goal,
@@ -547,7 +668,7 @@ export async function runAgent(
         createStep(
           `act-${roundNumber}`,
           "Act",
-          `Run tool call ${toolRuns.length} with "${toolRun.name}" and stop there because the tool budget is exhausted. Use all collected tool results to produce the final answer.`,
+          `Run tool call ${toolRuns.length} with "${toolRun.name}" and stop there because the safety tool budget of ${maxToolCalls} is exhausted. Use all collected tool results to produce the final answer.`,
         ),
       );
 

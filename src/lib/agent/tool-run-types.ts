@@ -35,6 +35,24 @@ function readMaxToolCalls() {
 
 export const MAX_TOOL_CALLS = readMaxToolCalls();
 
+export function normalizeMaxToolCalls(value: unknown) {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+export function getEffectiveMaxToolCalls(
+  sessionContext?: { maxToolCalls?: number | null },
+) {
+  return normalizeMaxToolCalls(sessionContext?.maxToolCalls) ?? MAX_TOOL_CALLS;
+}
+
 export function createSyntheticToolCallId() {
   return `tool-call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
