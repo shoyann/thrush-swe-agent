@@ -262,7 +262,7 @@ function buildMessagesWithToolRuns(baseMessages: LlmMessage[], toolRuns: ToolRun
 export function isFileModificationRequest(task: string) {
   return (
     /(modify|edit|update|change|append|replace|rewrite|revise|write|create|overwrite|delete|remove)/i.test(task) ||
-    /(淇敼|缂栬緫|鏇存柊|鏀瑰姩|杩藉姞|鏇挎崲|閲嶅啓|鍒犻櫎|澧炲姞)/u.test(task)
+    /(修改|编辑|更新|改动|追加|替换|重写|删除|增加)/u.test(task)
   );
 }
 
