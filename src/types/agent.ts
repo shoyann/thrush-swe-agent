@@ -29,6 +29,7 @@ export type AgentSessionContext = {
   lastReadFilePath?: string | null;
   lastToolInput?: string | null;
   lastToolName?: string | null;
+  maxToolCalls?: number;
   pendingDraft?: PendingDraftSnapshot | null;
   pendingWorkspaceSwitch?: PendingWorkspaceSwitch | null;
   projectId?: string | null;

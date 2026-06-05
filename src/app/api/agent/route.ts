@@ -109,6 +109,7 @@ export async function POST(request: Request) {
   const messagesForAgent = [...session.messages, userMessage];
   const sessionContext = {
     ...session.sessionContext,
+    ...body.sessionContext,
     projectId: project.id,
     sessionId,
   };

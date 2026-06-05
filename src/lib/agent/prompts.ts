@@ -1,6 +1,5 @@
-import { MAX_TOOL_CALLS } from "./tool-run-types";
-
 type PlannerSystemPromptInput = {
+  maxToolCalls: number;
   readOnly: boolean;
   remainingToolCalls: number;
   toolList: string;
@@ -23,6 +22,7 @@ function buildPlannerBudgetInstruction(
 }
 
 export function buildPlannerSystemPrompt({
+  maxToolCalls,
   readOnly,
   remainingToolCalls,
   toolList,
@@ -31,7 +31,7 @@ export function buildPlannerSystemPrompt({
   return [
     "You are the planning step for a stripped-down coding agent.",
     "You may request at most one tool in each reply.",
-    `The full user request may use at most ${MAX_TOOL_CALLS} tool calls total.`,
+    `The full user request may use at most ${maxToolCalls} tool calls total.`,
     buildPlannerBudgetInstruction(toolRunCount, remainingToolCalls),
     readOnly
       ? "This session is read-only. Do not modify files. The write_file and replace_text tools are unavailable."
