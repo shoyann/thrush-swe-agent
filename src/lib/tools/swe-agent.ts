@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -8,8 +8,8 @@ import type {
   ToolCallArgs,
   ToolExecutionInput,
   ToolResult,
-} from "@/lib/tools/types";
-import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
+} from "./types";
+import { getWorkspaceRoot } from "./workspace-path";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_SECONDS = 30 * 60;
@@ -227,13 +227,16 @@ function parseSweAgentObjectInput(input: ToolCallArgs): ParsedSweAgentInput {
 }
 
 function parseSweAgentStringInput(input: string): ParsedSweAgentInput {
+  const githubIssueUrl = parseTagBlock(input, "github_issue_url") ?? "";
+  const problemStatement = parseTagBlock(input, "problem_statement");
+
   return parseSweAgentObjectInput({
     action: parseTagBlock(input, "action") ?? "plan",
     cost_limit: null,
-    github_issue_url: parseTagBlock(input, "github_issue_url") ?? "",
+    github_issue_url: githubIssueUrl,
     github_repo_url: parseTagBlock(input, "github_repo_url") ?? "",
     model_name: parseTagBlock(input, "model_name") ?? "",
-    problem_statement: parseTagBlock(input, "problem_statement") ?? input.trim(),
+    problem_statement: problemStatement ?? (githubIssueUrl ? "" : input.trim()),
     timeout_seconds: null,
   });
 }
@@ -285,9 +288,10 @@ function writeProblemStatementFile(problemStatement: string) {
   return problemPath;
 }
 
-function buildSweAgentCommand(input: Extract<ParsedSweAgentInput, { ok: true }>, options: {
-  problemStatementPath?: string;
-} = {}): SweAgentCommandPlan {
+function buildSweAgentCommand(
+  input: Extract<ParsedSweAgentInput, { ok: true }>,
+  options: { problemStatementPath?: string } = {},
+): SweAgentCommandPlan {
   const command = getSweAgentBinary();
   const outputDir = getSweAgentOutputDir();
   const modelName = input.modelName || "<model-name>";
@@ -329,7 +333,10 @@ function trimOutput(text: string) {
   return `${text.slice(0, MAX_OUTPUT_LENGTH)}\n[output truncated]`;
 }
 
-function formatPlanResult(plan: SweAgentCommandPlan, input: Extract<ParsedSweAgentInput, { ok: true }>) {
+function formatPlanResult(
+  plan: SweAgentCommandPlan,
+  input: Extract<ParsedSweAgentInput, { ok: true }>,
+) {
   const lines = [
     "tool: swe_agent",
     "status: plan",
