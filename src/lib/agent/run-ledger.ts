@@ -51,6 +51,11 @@ export function recordLedgerToolRun(
   if ((toolRun.name === "write_file" || toolRun.name === "replace_text") && toolRun.result.draft) {
     ledger.appliedOrDraftedWrite = true;
     ledger.writePaths.push(toolRun.result.draft.path);
+    for (const validation of ledger.requiredValidations) {
+      validation.satisfiedAt = undefined;
+      validation.satisfiedByToolCallId = undefined;
+      validation.lastFailure = undefined;
+    }
   }
 
   if (toolRun.name !== "safe_command") {

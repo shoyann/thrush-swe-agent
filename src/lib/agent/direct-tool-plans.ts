@@ -4,6 +4,7 @@ import {
   type DirectToolPlan,
 } from "@/lib/agent/tool-run-types";
 import type { PlannedToolCall } from "@/lib/agent/model-client";
+import { getDirectSafeCommandIntent } from "@/lib/agent/intent-classifier";
 
 type DirectToolPlanRule = {
   derive: (goal: string) => DirectToolPlan | null;
@@ -18,17 +19,17 @@ function extractUrlFromTask(task: string) {
 function cleanClickTargetLabel(rawLabel: string) {
   return rawLabel
     .trim()
-    .replace(/^["'“”‘’]+|["'“”‘’]+$/gu, "")
+    .replace(/^["'\u201c\u201d\u2018\u2019]+|["'\u201c\u201d\u2018\u2019]+$/gu, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function deriveClickSelectorFromTask(task: string) {
-  if (/\bclick\s+the\s+first\s+link\b/i.test(task) || /点击第一个链接/u.test(task)) {
+  if (/\bclick\s+the\s+first\s+link\b/i.test(task) || /\u70b9\u51fb\u7b2c\u4e00\u4e2a\u94fe\u63a5/u.test(task)) {
     return "a";
   }
 
-  if (/\bclick\s+the\s+first\s+button\b/i.test(task) || /点击第一个按钮/u.test(task)) {
+  if (/\bclick\s+the\s+first\s+button\b/i.test(task) || /\u70b9\u51fb\u7b2c\u4e00\u4e2a\u6309\u94ae/u.test(task)) {
     return "button";
   }
 
@@ -48,7 +49,7 @@ function deriveClickSelectorFromTask(task: string) {
     }
   }
 
-  const chineseLinkMatch = task.match(/点击(.+?)链接/u);
+  const chineseLinkMatch = task.match(/\u70b9\u51fb(.+?)\u94fe\u63a5/u);
   if (chineseLinkMatch?.[1]) {
     const label = cleanClickTargetLabel(chineseLinkMatch[1]);
     if (label) {
@@ -56,7 +57,7 @@ function deriveClickSelectorFromTask(task: string) {
     }
   }
 
-  const chineseButtonMatch = task.match(/点击(.+?)按钮/u);
+  const chineseButtonMatch = task.match(/\u70b9\u51fb(.+?)\u6309\u94ae/u);
   if (chineseButtonMatch?.[1]) {
     const label = cleanClickTargetLabel(chineseButtonMatch[1]);
     if (label) {
@@ -75,7 +76,7 @@ function deriveMaxCharsFromTask(task: string) {
     return Number(englishMatch[1]);
   }
 
-  const chineseMatch = task.match(/(\d{2,4})\s*(?:字|字符)/u);
+  const chineseMatch = task.match(/(\d{2,4})\s*(?:\u5b57|\u5b57\u7b26)/u);
   if (chineseMatch?.[1]) {
     return Number(chineseMatch[1]);
   }
@@ -111,100 +112,91 @@ export function deriveDirectClickToolCall(
   };
 }
 
+export function deriveDirectReadPageToolCall(
+  task: string,
+): DirectToolPlan | null {
+  const url = extractUrlFromTask(task);
+  const maxChars = deriveMaxCharsFromTask(task);
+
+  if (!url) {
+    return null;
+  }
+
+  return {
+    id: createSyntheticToolCallId(),
+    name: "read_page",
+    input:
+      maxChars === null
+        ? {
+            url,
+          }
+        : {
+            url,
+            max_chars: maxChars,
+          },
+  };
+}
+
 export function deriveDirectSafeCommandToolCall(
   task: string,
 ): DirectToolPlan | null {
-  const cleanTask = task.trim();
+  const commandIntent = getDirectSafeCommandIntent(task);
 
-  const asksForGitStatus =
-    /\bgit\s+status\b/i.test(cleanTask) ||
-    /(仓库状态|git状态|当前状态|工作区状态)/u.test(cleanTask);
-
-  if (asksForGitStatus) {
-    return {
-      id: createSyntheticToolCallId(),
-      name: "safe_command",
-      input: {
-        command: "git",
-        args: ["status"],
-      },
-    };
+  if (!commandIntent) {
+    return null;
   }
 
-  const asksForBuild =
-    /\bnpm\s+run\s+build\b/i.test(cleanTask) ||
-    /\bbuild\b/i.test(cleanTask) ||
-    /(构建|编译|跑一下构建|构建检查|验证构建|检查能不能构建)/u.test(cleanTask);
+  return {
+    id: createSyntheticToolCallId(),
+    name: "safe_command",
+    input: {
+      command: commandIntent.command,
+      args: commandIntent.args,
+    },
+  };
+}
 
-  if (asksForBuild) {
-    return {
-      id: createSyntheticToolCallId(),
-      name: "safe_command",
-      input: {
-        command: "npm",
-        args: ["run", "build"],
-      },
-    };
-  }
-
-  const asksForTest =
-    /\bnpm\s+test\b/i.test(cleanTask) ||
-    /\btest\b/i.test(cleanTask) ||
-    /(测试|跑测试|执行测试|验证测试|检查测试)/u.test(cleanTask);
-
-  if (asksForTest) {
-    return {
-      id: createSyntheticToolCallId(),
-      name: "safe_command",
-      input: {
-        command: "npm",
-        args: ["test"],
-      },
-    };
-  }
-
-  return null;
+function extractIssueNumber(task: string) {
+  return (
+    task.match(/\bissues?\/(\d+)\b/i)?.[1] ??
+    task.match(/\bissue\s+#?(\d+)\b/i)?.[1] ??
+    task.match(/\u7b2c\s*(\d+)\s*\u4e2a?\s*issue/iu)?.[1] ??
+    task.match(/issue\s*(?:\u8be6\u60c5|\u7f16\u53f7)?\s*#?(\d+)/iu)?.[1] ??
+    null
+  );
 }
 
 export function deriveDirectGitInspectToolCall(
   task: string,
 ): DirectToolPlan | null {
   const cleanTask = task.trim();
+  const issueNumber = extractIssueNumber(cleanTask);
   const asksForIssuePlan =
-    /(issue\s*(计划|execution\s*plan)|执行计划|改代码计划)/iu.test(cleanTask);
-  const issueDetailMatch =
-    cleanTask.match(/\bissue\s+#?(\d+)\b/i) ||
-    cleanTask.match(/issue\s*详情\s*#?(\d+)/iu) ||
-    cleanTask.match(/第\s*(\d+)\s*个\s*issue/iu) ||
-    cleanTask.match(/issue\s*(\d+)/iu);
+    /(issue\s*(\u8ba1\u5212|execution\s*plan)|\u6267\u884c\u8ba1\u5212|\u6539\u4ee3\u7801\u8ba1\u5212|\u8f6c\u4e3a\u6267\u884c\u8ba1\u5212)/iu.test(cleanTask);
 
-  if (asksForIssuePlan && issueDetailMatch?.[1]) {
+  if (asksForIssuePlan && issueNumber) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
       input: {
         action: "issue_plan",
-        issue_number: Number(issueDetailMatch[1]),
+        issue_number: Number(issueNumber),
       },
     };
   }
 
-  if (issueDetailMatch?.[1]) {
+  if (issueNumber && !extractUrlFromTask(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
       input: {
         action: "issue_detail",
-        issue_number: Number(issueDetailMatch[1]),
+        issue_number: Number(issueNumber),
       },
     };
   }
 
-  const asksForIssueList =
-    /\bissues?\b/i.test(cleanTask) ||
-    /(issue 列表|issues 列表|当前 issue|仓库 issue|待办|问题列表)/iu.test(cleanTask);
-
-  if (asksForIssueList) {
+  if (/\bissues?\b/i.test(cleanTask) || /(issue \u5217\u8868|issues \u5217\u8868|\u5f53\u524d issue|\u4ed3\u5e93 issue|\u5f85\u529e|\u95ee\u9898\u5217\u8868)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -214,11 +206,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForRepoInfo =
-    /\brepo\b/i.test(cleanTask) ||
-    /(仓库信息|当前仓库|repo info|repository info|仓库详情|github 仓库信息)/iu.test(cleanTask);
-
-  if (asksForRepoInfo) {
+  if (/\b(?:repo|repository)\b/i.test(cleanTask) || /(\u4ed3\u5e93\u4fe1\u606f|\u5f53\u524d\u4ed3\u5e93|\u4ed3\u5e93\u8be6\u60c5|github \u4ed3\u5e93\u4fe1\u606f)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -228,11 +216,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForTaskSubmit =
-    /\btask[_\s-]?submit\b/i.test(cleanTask) ||
-    /(任务提交|提交草稿|提交任务草稿|生成提交草稿)/u.test(cleanTask);
-
-  if (asksForTaskSubmit) {
+  if (/\btask[_\s-]?submit\b/i.test(cleanTask) || /(\u4efb\u52a1\u63d0\u4ea4|\u63d0\u4ea4\u8349\u7a3f|\u63d0\u4ea4\u4efb\u52a1\u8349\u7a3f|\u751f\u6210\u63d0\u4ea4\u8349\u7a3f)/u.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -242,11 +226,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForPatchExport =
-    /\b(?:patch|patch\s+export|export\s+patch|diff\s+patch)\b/i.test(cleanTask) ||
-    /(导出补丁|补丁导出|生成补丁|输出补丁|补丁文本)/u.test(cleanTask);
-
-  if (asksForPatchExport) {
+  if (/\b(?:patch|patch\s+export|export\s+patch|diff\s+patch)\b/i.test(cleanTask) || /(\u5bfc\u51fa\u8865\u4e01|\u8865\u4e01\u5bfc\u51fa|\u751f\u6210\u8865\u4e01|\u8f93\u51fa\u8865\u4e01|\u8865\u4e01\u6587\u672c)/u.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -256,11 +236,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForPrDraft =
-    /\bpr\b/i.test(cleanTask) ||
-    /(pr 草稿|pull request|拉取请求|合并请求|pr 文案|pr draft|帮我写 pr)/iu.test(cleanTask);
-
-  if (asksForPrDraft) {
+  if (/\bpr\b/i.test(cleanTask) || /(pr \u8349\u7a3f|pull request|\u62c9\u53d6\u8bf7\u6c42|\u5408\u5e76\u8bf7\u6c42|pr \u6587\u6848|pr draft|\u5e2e\u6211\u5199 pr)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -270,11 +246,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForCommitMessage =
-    /\bcommit\s+message\b/i.test(cleanTask) ||
-    /(提交说明|提交信息|commit 文案|commit message|帮我写提交信息|帮我写 commit)/iu.test(cleanTask);
-
-  if (asksForCommitMessage) {
+  if (/\bcommit\s+message\b/i.test(cleanTask) || /(\u63d0\u4ea4\u8bf4\u660e|\u63d0\u4ea4\u4fe1\u606f|commit \u6587\u6848|commit message|\u5e2e\u6211\u5199\u63d0\u4ea4\u4fe1\u606f|\u5e2e\u6211\u5199 commit)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -284,14 +256,11 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForGithubEnv =
+  if (
     /\bgh\b/i.test(cleanTask) ||
-    /(github|remote|origin).{0,12}(连接|连上|环境|状态|检查|配置)/iu.test(cleanTask) ||
-    /(有没有\s*remote|有没有\s*github\s*remote|能不能用\s*gh|github\s*登录|gh\s*登录)/iu.test(
-      cleanTask,
-    );
-
-  if (asksForGithubEnv) {
+    /(github|remote|origin).{0,12}(\u8fde\u63a5|\u8fde\u4e0a|\u73af\u5883|\u72b6\u6001|\u68c0\u67e5|\u914d\u7f6e)/iu.test(cleanTask) ||
+    /(\u6709\u6ca1\u6709\s*remote|\u6709\u6ca1\u6709\s*github\s*remote|\u80fd\u4e0d\u80fd\u7528\s*gh|github\s*\u767b\u5f55|gh\s*\u767b\u5f55)/iu.test(cleanTask)
+  ) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -301,11 +270,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForGitSummary =
-    /(?:git|change|diff|status)\s+summary/i.test(cleanTask) ||
-    /(变更总结|改动总结|总结改动|总结变更|git总结|git 摘要|change summary)/iu.test(cleanTask);
-
-  if (asksForGitSummary) {
+  if (/(?:git|change|diff|status)\s+summary/i.test(cleanTask) || /(\u53d8\u66f4\u603b\u7ed3|\u6539\u52a8\u603b\u7ed3|\u603b\u7ed3\u6539\u52a8|\u603b\u7ed3\u53d8\u66f4|git\u603b\u7ed3|git \u6458\u8981|change summary)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -315,11 +280,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForGitDiff =
-    /\bgit\s+diff\b/i.test(cleanTask) ||
-    /(git\s*diff|仓库差异|改动差异|变更差异|查看差异|看看差异)/iu.test(cleanTask);
-
-  if (asksForGitDiff) {
+  if (/\bgit\s+diff\b/i.test(cleanTask) || /(git\s*diff|\u4ed3\u5e93\u5dee\u5f02|\u6539\u52a8\u5dee\u5f02|\u53d8\u66f4\u5dee\u5f02|\u67e5\u770b\u5dee\u5f02|\u770b\u770b\u5dee\u5f02)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -329,11 +290,7 @@ export function deriveDirectGitInspectToolCall(
     };
   }
 
-  const asksForGitStatus =
-    /\bgit\s+status\b/i.test(cleanTask) ||
-    /(git\s*状态|仓库状态|工作区状态|改动状态|查看状态|看看状态)/iu.test(cleanTask);
-
-  if (asksForGitStatus) {
+  if (/\bgit\s+status\b/i.test(cleanTask) || /(git\s*\u72b6\u6001|\u4ed3\u5e93\u72b6\u6001|\u5de5\u4f5c\u533a\u72b6\u6001|\u6539\u52a8\u72b6\u6001|\u67e5\u770b\u72b6\u6001|\u770b\u770b\u72b6\u6001)/iu.test(cleanTask)) {
     return {
       id: createSyntheticToolCallId(),
       name: "git_inspect",
@@ -345,12 +302,8 @@ export function deriveDirectGitInspectToolCall(
 
   const asksWhetherGitRepo =
     /\bgit\s+(repo|repository)\b/i.test(cleanTask) ||
-    /(是不是|是否|算不算|当前目录|这个目录|这个项目).{0,12}(git\s*仓库|git\s*repo|git\s*repository)/iu.test(
-      cleanTask,
-    ) ||
-    /(git\s*仓库|git\s*repo|git\s*repository).{0,12}(吗|有没有|情况|状态|检查)/iu.test(
-      cleanTask,
-    );
+    /(\u662f\u4e0d\u662f|\u662f\u5426|\u7b97\u4e0d\u7b97|\u5f53\u524d\u76ee\u5f55|\u8fd9\u4e2a\u76ee\u5f55|\u8fd9\u4e2a\u9879\u76ee).{0,12}(git\s*\u4ed3\u5e93|git\s*repo|git\s*repository)/iu.test(cleanTask) ||
+    /(git\s*\u4ed3\u5e93|git\s*repo|git\s*repository).{0,12}(\u5417|\u6709\u6ca1\u6709|\u60c5\u51b5|\u72b6\u6001|\u68c0\u67e5)/iu.test(cleanTask);
 
   if (!asksWhetherGitRepo) {
     return null;
@@ -392,6 +345,10 @@ const directToolPlanRules: DirectToolPlanRule[] = [
   {
     match: (goal) => !!extractUrlFromTask(goal) && !!deriveClickSelectorFromTask(goal),
     derive: deriveDirectClickToolCall,
+  },
+  {
+    match: (goal) => !!deriveDirectReadPageToolCall(goal),
+    derive: deriveDirectReadPageToolCall,
   },
   {
     match: (goal) => !!derivePastedIssuePlanToolCall(goal),
@@ -449,58 +406,58 @@ function stripTrailingMatch(text: string, patterns: RegExp[]) {
   return nextText;
 }
 
+function cleanSearchQuery(text: string) {
+  let query = text.trim();
+
+  query = stripLeadingMatch(query, [
+    /^(?:\u8bf7\u5e2e\u6211|\u5e2e\u6211|\u8bf7\u4f60|\u9ebb\u70e6\u4f60|\u9ebb\u70e6)\s*/u,
+    /^(?:\u5728\u7f51\u4e0a|\u4e0a\u7f51|\u5728\u7ebf)\s*/u,
+    /^(?:\u641c\u7d22\u4e00\u4e0b|\u641c\u7d22|\u641c\u4e00\u4e0b|\u641c\u4e00\u641c|\u641c\u641c|\u67e5\u4e00\u4e0b|\u67e5\u4e00\u67e5|\u67e5\u67e5|\u67e5\u627e|\u67e5\u8be2|\u627e\u4e00\u4e0b)\s*/u,
+    /^(?:about|regarding|\u5173\u4e8e)\s*/iu,
+    /^(?:please\s+)?(?:search|look up|find)\s+(?:for\s+)?/iu,
+  ]);
+
+  query = stripTrailingMatch(query, [
+    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:\u7136\u540e|\u5e76\u4e14)?\s*(?:\u628a|\u5c06)?\s*(?:\u7f51\u9875)?\u6807\u9898\u548c\u94fe\u63a5\s*(?:\u544a\u8bc9\u6211|\u7ed9\u6211|\u53d1\u6211)?\s*$/u,
+    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:\u53ea\u8981|\u53ea\u9700\u8981)\s*(?:\u7f51\u9875)?\u6807\u9898\u548c\u94fe\u63a5\s*$/u,
+    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:\u544a\u8bc9\u6211|\u7ed9\u6211|\u53d1\u6211|\u5217\u51fa\u6765)\s*$/u,
+    /\s*(?:and\s+)?(?:give|tell|show)\s+me\s+(?:the\s+)?title(?:s)?\s+and\s+link(?:s)?\s*$/iu,
+  ]);
+
+  return query
+    .replace(/[\u3002\uFF0C\uFF01\uFF1F,!.?]+/gu, " ")
+    .replace(/^["'\u201c\u201d\u2018\u2019`\s]+|["'\u201c\u201d\u2018\u2019`\s]+$/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function deriveWebSearchQueryFromTask(task: string) {
   const taggedQuery = parseTagBlock(task, "query");
   if (taggedQuery) {
     return taggedQuery;
   }
 
-  let query = task.trim();
-
-  query = stripLeadingMatch(query, [
-    /^(?:请帮我|帮我|请你|请|麻烦你|麻烦)\s*/u,
-    /^(?:在网上|上网|在线)\s*/u,
-    /^(?:搜索一下|搜索|搜一下|搜一搜|搜搜|查一下|查一查|查查|查找|查询|找一下)\s*/u,
-    /^(?:关于|一下)\s*/u,
-    /^(?:please\s+)?(?:search|look up|find)\s+(?:for\s+)?/iu,
-  ]);
-
-  query = stripTrailingMatch(query, [
-    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:并|然后|再)?\s*(?:把|将)?\s*(?:网页)?标题和链接(?:告诉我|给我|发我)?\s*$/u,
-    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:只要|只需要)?\s*(?:网页)?标题和链接\s*$/u,
-    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:告诉我|给我|发我|列出来)\s*$/u,
-    /\s*(?:and\s+)?(?:give|tell|show)\s+me\s+(?:the\s+)?title(?:s)?\s+and\s+link(?:s)?\s*$/iu,
-  ]);
-
-  query = query.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/gu, "").trim();
-
-  return query || task.trim();
+  return cleanSearchQuery(task) || task.trim();
 }
 
 function hasWhoSearchIntent(text: string) {
-  return /(?:是谁|什么人|谁啊|谁呀)/u.test(text);
+  return /(?:\u662f\u8c01|\u4ec0\u4e48\u4eba|\u8c01\u554a|\u8c01\u5440)/u.test(text);
 }
 
 function hasWhenSearchIntent(text: string) {
-  return /(?:什么时候|啥时候|何时|几点|几号|哪天|when|what\s+time|what\s+date)/iu.test(
-    text,
-  );
+  return /(?:\u4ec0\u4e48\u65f6\u5019|\u5565\u65f6\u5019|\u4f55\u65f6|\u51e0\u70b9|\u51e0\u53f7|\u54ea\u5929|when|what\s+time|what\s+date)/iu.test(text);
 }
 
 function hasEndSearchIntent(text: string) {
-  return /(?:结束|截止|end|ending|ends)/iu.test(text);
+  return /(?:\u7ed3\u675f|\u622a\u6b62|end|ending|ends)/iu.test(text);
 }
 
 function hasStartSearchIntent(text: string) {
-  return /(?:开始|开幕|start|begin|opening)/iu.test(text);
-}
-
-function collapseSearchTerms(text: string) {
-  return text.replace(/\s+/g, " ").trim();
+  return /(?:\u5f00\u59cb|\u5f00\u5e55|start|begin|opening)/iu.test(text);
 }
 
 function appendSearchTerms(query: string, suffix: string) {
-  const normalizedQuery = collapseSearchTerms(query);
+  const normalizedQuery = query.replace(/\s+/g, " ").trim();
 
   if (!normalizedQuery) {
     return suffix;
@@ -525,45 +482,20 @@ export function deriveFocusedWebSearchQuery(task: string) {
   const asksEnd = hasEndSearchIntent(originalTask);
   const asksStart = hasStartSearchIntent(originalTask);
 
-  let query = originalTask;
-
-  query = stripLeadingMatch(query, [
-    /^(?:请帮我|帮我|请你|请|麻烦你|麻烦)\s*/u,
-    /^(?:在网上|上网|在线)\s*/u,
-    /^(?:搜索一下|搜索|搜一下|搜一搜|搜搜|查一下|查一查|查查|查找|查询|找一下)\s*/u,
-    /^(?:关于|一下)\s*/u,
-    /^(?:please\s+)?(?:search|look up|find)\s+(?:for\s+)?/iu,
-  ]);
-
-  query = stripTrailingMatch(query, [
-    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:并|然后|再)?\s*(?:把|将)?\s*(?:网页)?标题和链接(?:告诉我|给我|发我)?\s*$/u,
-    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:只要|只需要)?\s*(?:网页)?标题和链接\s*$/u,
-    /[\u3002\uFF0C\uFF01\uFF1F,!.?]?\s*(?:告诉我|给我|发我|列出来)\s*$/u,
-    /\s*(?:and\s+)?(?:give|tell|show)\s+me\s+(?:the\s+)?title(?:s)?\s+and\s+link(?:s)?\s*$/iu,
-  ]);
-
-  query = collapseSearchTerms(
-    query
-      .replace(/[\u3002\uFF0C\uFF01\uFF1F,!.?]+/gu, " ")
-      .replace(/([\p{Script=Han}])在(?=[A-Za-z0-9])/gu, "$1 ")
-      .replace(/(?<=[\p{Script=Han}])(?=[A-Za-z0-9])/gu, " ")
-      .replace(/(?<=[A-Za-z0-9])(?=[\p{Script=Han}])/gu, " ")
-      .replace(
-        /(?:是谁|什么人|谁啊|谁呀|什么时候|啥时候|何时|几点|几号|哪天|什么时间|结束|截止|开始|开幕)/gu,
-        " ",
-      )
-      .replace(/\b(?:who|when|what\s+time|what\s+date)\b/giu, " ")
-      .replace(/[\u201c\u201d"'`\u2018\u2019]+/gu, " "),
-  );
+  let query = cleanSearchQuery(originalTask)
+    .replace(/(?:\u662f\u8c01|\u4ec0\u4e48\u4eba|\u8c01\u554a|\u8c01\u5440|\u4ec0\u4e48\u65f6\u5019|\u5565\u65f6\u5019|\u4f55\u65f6|\u51e0\u70b9|\u51e0\u53f7|\u54ea\u5929|\u4ec0\u4e48\u65f6\u5019\u7ed3\u675f|\u622a\u6b62|\u5f00\u59cb|\u5f00\u5e55)/gu, " ")
+    .replace(/\b(?:who|when|what\s+time|what\s+date)\b/giu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
   if (asksWho) {
-    query = appendSearchTerms(query, "人物 简介");
+    query = appendSearchTerms(query, "\u4eba\u7269 \u7b80\u4ecb");
   } else if (asksWhen && asksEnd) {
-    query = appendSearchTerms(query, "结束时间");
+    query = appendSearchTerms(query, "\u7ed3\u675f\u65f6\u95f4");
   } else if (asksWhen && asksStart) {
-    query = appendSearchTerms(query, "开始时间");
+    query = appendSearchTerms(query, "\u5f00\u59cb\u65f6\u95f4");
   } else if (asksWhen) {
-    query = appendSearchTerms(query, "时间 日期");
+    query = appendSearchTerms(query, "\u65f6\u95f4 \u65e5\u671f");
   }
 
   return query || originalTask;
