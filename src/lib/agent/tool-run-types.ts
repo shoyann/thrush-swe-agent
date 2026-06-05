@@ -22,7 +22,18 @@ export type ToolRun = ToolRunBase & {
 
 export const APPROVE_WRITE_COMMAND = "APPROVE_WRITE";
 export const CANCEL_WRITE_COMMAND = "CANCEL_WRITE";
-export const MAX_TOOL_CALLS = 4;
+
+function readMaxToolCalls() {
+  const rawValue = process.env.AGENT_MAX_TOOL_CALLS?.trim();
+  if (!rawValue || !/^\d+$/.test(rawValue)) {
+    return 4;
+  }
+
+  const parsedValue = Number(rawValue);
+  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : 4;
+}
+
+export const MAX_TOOL_CALLS = readMaxToolCalls();
 
 export function createSyntheticToolCallId() {
   return `tool-call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
