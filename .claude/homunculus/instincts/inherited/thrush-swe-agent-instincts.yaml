@@ -1,0 +1,436 @@
+# Instincts generated from https://github.com/shoyann/thrush-swe-agent
+# Generated: 2026-06-05T08:45:52.645Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: thrush-swe-agent-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Commit Length
+
+## Action
+
+Keep commit messages concise (~29 characters)
+
+## Evidence
+
+- Average commit message length: 29 chars
+- Based on 3 commits
+
+---
+id: thrush-swe-agent-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: thrush-swe-agent-import-alias
+trigger: "when importing modules"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Import Alias
+
+## Action
+
+Use path aliases (@/, ~/) instead of relative imports
+
+## Evidence
+
+- Import analysis shows alias pattern
+- Example: import { x } from '@/lib/x'
+
+---
+id: thrush-swe-agent-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: thrush-swe-agent-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: app, lib, types
+
+---
+id: thrush-swe-agent-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: thrush-swe-agent-workflow-add-database-feature-with-migration
+trigger: "when doing add database feature with migration"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Workflow Add Database Feature With Migration
+
+## Action
+
+Follow the add-database-feature-with-migration workflow:
+1. Create a new SQL migration file in src/lib/db/migrations/
+2. Update src/lib/db/store.ts to handle new data logic
+3. Update or add relevant TypeScript types in src/types/
+4. Implement or update feature logic in src/lib/agent/
+5. Update or add API route handlers if necessary
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/lib/db/migrations/*.sql, src/lib/db/store.ts, src/types/*.ts
+
+---
+id: thrush-swe-agent-workflow-extend-agent-core-logic
+trigger: "when doing extend agent core logic"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Workflow Extend Agent Core Logic
+
+## Action
+
+Follow the extend-agent-core-logic workflow:
+1. Update or add logic in multiple src/lib/agent/*.ts files
+2. Update related TypeScript types in src/types/agent.ts
+3. Update or add API route handlers if agent behavior is exposed via API
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/lib/agent/*.ts, src/types/agent.ts, src/app/api/*/route.ts
+
+---
+id: thrush-swe-agent-instinct-file-naming
+trigger: "When creating or renaming a file"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct File Naming
+
+## Action
+
+Use camelCase for file names
+
+## Evidence
+
+- Pattern in namingConventions.files
+- Consistent file names in src/
+
+---
+id: thrush-swe-agent-instinct-function-naming
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Function Naming
+
+## Action
+
+Use camelCase for function names
+
+## Evidence
+
+- Pattern in namingConventions.functions
+- Consistent function names in src/lib/agent/*.ts
+
+---
+id: thrush-swe-agent-instinct-class-naming
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Class Naming
+
+## Action
+
+Use PascalCase for class names
+
+## Evidence
+
+- Pattern in namingConventions.classes
+- Consistent class names in src/lib/
+
+---
+id: thrush-swe-agent-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names
+
+## Evidence
+
+- Pattern in namingConventions.constants
+- Consistent constant names in src/types/
+
+---
+id: thrush-swe-agent-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Import Style
+
+## Action
+
+Use alias import style
+
+## Evidence
+
+- Pattern in importStyle
+- Imports in src/lib/agent/*.ts
+
+---
+id: thrush-swe-agent-instinct-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle
+- Exports in src/lib/agent/*.ts
+
+---
+id: thrush-swe-agent-instinct-try-catch-errors
+trigger: "When handling errors in code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Try Catch Errors
+
+## Action
+
+Use try-catch blocks for error handling
+
+## Evidence
+
+- Pattern in errorHandling.style
+- try-catch usage in src/lib/agent/*.ts
+
+---
+id: thrush-swe-agent-instinct-test-location
+trigger: "When adding or updating tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Test Location
+
+## Action
+
+Place tests in a separate directory from source code
+
+## Evidence
+
+- Pattern in architecture.testLocation
+- Test files located outside src/
+
+---
+id: thrush-swe-agent-instinct-test-type-coverage
+trigger: "When writing tests for new features or logic"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Test Type Coverage
+
+## Action
+
+Ensure tests cover both logic and related TypeScript types
+
+## Evidence
+
+- Workflow steps include updating types and logic
+- Files in src/types/ and src/lib/agent/ are both updated
+
+---
+id: thrush-swe-agent-instinct-commit-format-freeform
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Commit Format Freeform
+
+## Action
+
+Use a short, imperative, freeform commit message without prefixes
+
+## Evidence
+
+- Pattern in commits.type
+- Examples: 'Add session auto approve', 'Add agent auto loop completion checks'
+
+---
+id: thrush-swe-agent-instinct-commit-length-short
+trigger: "When composing a commit message"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Commit Length Short
+
+## Action
+
+Keep the commit message concise (around 30 characters)
+
+## Evidence
+
+- Pattern in commits.averageLength
+- Commit examples rarely exceed 30 characters
+
+---
+id: thrush-swe-agent-instinct-db-feature-workflow
+trigger: "When introducing a new database-backed feature or entity"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Db Feature Workflow
+
+## Action
+
+Follow the add-database-feature-with-migration workflow: create migration, update store, update types, implement logic, update API handlers
+
+## Evidence
+
+- Workflow: add-database-feature-with-migration
+- Seen in commit sequences and file updates
+
+---
+id: thrush-swe-agent-instinct-agent-core-logic-workflow
+trigger: "When adding or improving agent capabilities or behaviors"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: shoyann/thrush-swe-agent
+---
+
+# Thrush Swe Agent Instinct Agent Core Logic Workflow
+
+## Action
+
+Follow the extend-agent-core-logic workflow: update agent logic, update types, update API handlers if needed
+
+## Evidence
+
+- Workflow: extend-agent-core-logic
+- Seen in commit sequences and file updates
+
