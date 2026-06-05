@@ -7,6 +7,7 @@ import type {
 import type { ToolRun } from "@/lib/agent/tool-run-types";
 
 export type RunAgentOptions = {
+  disableTaskPlanning?: boolean;
   onEvent?: (event: AgentStreamEvent) => void | Promise<void>;
   onToolRun?: (toolRun: ToolRun) => void | Promise<void>;
   projectId?: string;
