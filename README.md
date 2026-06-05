@@ -21,14 +21,14 @@
 | Capability | Detail |
 |---|---|
 | Agent loop | Lean `Perceive -> Think -> Act` loop streamed to the UI in real time |
-| Tool calling | Files, tree listing, search, web, Git, GitHub issues, and shell allowlist |
+| Tool calling | Files, tree listing, search, web, Git, GitHub issues, SWE-agent bridge, and shell allowlist |
 | Agent architecture | Tool result hooks, think strategies, and direct tool plan rules keep the main loop small |
 | Draft approval | File edits are prepared as drafts and only written after explicit user approval |
 | Project workspace | Each project points at a local workspace folder; tools are sandboxed to that folder |
 | Session state | Projects, sessions, messages, tool runs, and checkpoints are stored locally in SQLite |
 | Workspace switching | A session can switch to another local workspace after confirmation, with optional read-only mode |
 | Browser tools | Playwright-powered page reading and clicking |
-| Safety boundary | Workspace path validation, SSRF checks, command allowlist, and write approval gate |
+| Safety boundary | Workspace path validation, SSRF checks, command allowlist, disabled-by-default SWE-agent execution, and write approval gate |
 | Observability | Every run gets a unique `req_xxxxxx` ID with structured JSON logs |
 | Auth | `POST /api/agent` is protected by a Bearer token |
 | Model client | DeepSeek by default, with provider-aware configuration for OpenAI-compatible clients |
@@ -108,10 +108,13 @@ You can also create projects from the UI. Each project stores its own workspace 
 | `AGENT_WORKSPACE_ROOT` | No | Default absolute folder path the agent is allowed to inspect and draft edits inside |
 | `AGENT_MAX_TOOL_CALLS` | No | Maximum tool calls per agent run; defaults to `4` |
 | `GH_PATH` | No | Absolute path to `gh.exe` if GitHub CLI is not on `PATH` |
+| `SWE_AGENT_BIN` | No | Absolute path to the official `sweagent` CLI if it is not on `PATH` |
+| `SWE_AGENT_MODEL` | No | Default model name used by the `swe_agent` bridge tool |
+| `SWE_AGENT_TOOL_ENABLED` | No | Must be `true` before the `swe_agent` tool can execute real runs; previews still work when unset |
 
 ## Tool list
 
-`click_page` | `git_inspect` | `list_files` | `read_file` | `read_page` | `replace_text` | `safe_command` | `search_text` | `tree_files` | `web_search` | `write_file`
+`click_page` | `git_inspect` | `list_files` | `read_file` | `read_page` | `replace_text` | `safe_command` | `search_text` | `swe_agent` | `tree_files` | `web_search` | `write_file`
 
 ## Tool behavior
 
@@ -125,9 +128,27 @@ You can also create projects from the UI. Each project stores its own workspace 
 | `replace_text` | Prepares an exact text replacement draft; does not write immediately |
 | `safe_command` | Runs a small allowlist of local commands such as `git status`, build, test, lint, `rg`, `pytest`, `ruff`, `cargo`, or `make` |
 | `git_inspect` | Reads Git state, diffs, GitHub readiness, issues, issue details, issue plans, PR drafts, and patch exports |
+| `swe_agent` | Checks, previews, or runs the official external SWE-agent CLI for one GitHub issue or local workspace task; real execution is disabled unless `SWE_AGENT_TOOL_ENABLED=true` |
 | `web_search` | Searches the public web and returns a short list of titles and links |
 | `read_page` | Opens a public page in Playwright and returns visible text |
 | `click_page` | Opens a public page, clicks one simple selector, and returns the resulting page text |
+
+## SWE-agent bridge
+
+Thrush does not vendor the official SWE-agent Python code. Instead, the `swe_agent` tool is a narrow bridge to a locally installed `sweagent` command.
+
+This is intentional:
+
+- small edits should stay inside Thrush's review-and-approve draft flow
+- broad issue-solving experiments can be delegated to official SWE-agent when you explicitly enable it
+- real SWE-agent runs may start Docker containers, execute project code, use network access, and spend model tokens
+
+Safe setup path:
+
+1. Install and configure official SWE-agent separately.
+2. Set `SWE_AGENT_BIN` only if `sweagent` is not already on `PATH`.
+3. Set `SWE_AGENT_MODEL` or pass `model_name` when asking Thrush to use `swe_agent`.
+4. Keep `SWE_AGENT_TOOL_ENABLED=false` until you are ready for real execution.
 
 ## Write approval flow
 
@@ -154,7 +175,8 @@ Short replies like `approve`, `cancel`, `批准`, or `取消` are also supported
 - `AGENT_WORKSPACE_ROOT` and project workspace paths are the main file boundaries. File tools reject paths outside the active workspace.
 - URL tools block localhost, loopback, and private network ranges to reduce SSRF risk.
 - `safe_command` is an allowlist, not a full sandbox. Build and test commands can still execute project code.
-- Do not run Thrush against untrusted repositories unless you understand the local execution risk.
+- The `swe_agent` bridge is disabled for real execution by default. When enabled, official SWE-agent may start Docker containers, execute code, use network access, and spend model tokens.
+- Do not run Thrush or SWE-agent against untrusted repositories unless you understand the local execution risk.
 
 ## Local state
 
@@ -177,13 +199,14 @@ Pending drafts are persisted in session context after the agent run finishes. A 
 
 ## Known gaps
 
-- Test coverage is still narrow. The current `test` script focuses on `safe_command`; agent loop, API routes, file tools, browser tools, workspace switching, and GitHub issue flows still need dedicated tests.
-- The main loop is modular, but `onResult`, think strategies, direct plan rules, model provider paths, and draft lifecycle flows need broader coverage.
+- Test coverage is still narrow. The current `test` script focuses on tool-level safety plus agent reliability helpers; API routes, browser tools, workspace switching, and GitHub issue flows still need dedicated tests.
+- The main loop is modular, but `onResult`, think strategies, direct tool plan rules, model provider paths, and draft lifecycle flows need broader coverage.
 - `tree_files` exists, but it is intentionally shallow and capped; large repository exploration still needs better summaries.
 - The UI auth model is local-dev oriented. Production deployments need real user authentication and server-only secrets.
 - File edit review is still text-based. A proper diff viewer would make draft approval safer.
 - Command execution is allowlisted, but not isolated in a Docker or VM sandbox.
 - GitHub issue and PR features depend on local Git state, remotes, `gh`, and GitHub authentication being configured correctly.
+- The `swe_agent` bridge depends on a separate official SWE-agent installation and is only a command bridge, not an embedded Python integration.
 
 ## Status
 
