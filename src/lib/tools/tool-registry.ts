@@ -6,6 +6,7 @@ import { readPageTool } from "@/lib/tools/read-page";
 import { replaceTextTool } from "@/lib/tools/replace-text";
 import { safeCommandTool } from "@/lib/tools/safe-command";
 import { searchTextTool } from "@/lib/tools/search-text";
+import { treeFilesTool } from "@/lib/tools/tree-files";
 import { webSearchTool } from "@/lib/tools/web-search";
 import { writeFileTool } from "@/lib/tools/write-file";
 import type { AgentTool } from "@/lib/tools/types";
@@ -21,6 +22,7 @@ const tools: AgentTool[] = [
   replaceTextTool,
   safeCommandTool,
   searchTextTool,
+  treeFilesTool,
   webSearchTool,
   writeFileTool,
 ];
