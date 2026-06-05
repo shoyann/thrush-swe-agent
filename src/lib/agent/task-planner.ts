@@ -8,6 +8,7 @@ import {
 } from "@/lib/agent/conversation-context";
 import type { AgentContext } from "@/lib/agent/agent-thinking";
 import { callModelForText } from "@/lib/agent/model-client";
+import type { ToolRun } from "@/lib/agent/tool-run-types";
 import { formatSessionContextForModel } from "@/lib/agent/session-state";
 import type { SubtaskRecord } from "@/lib/db/store";
 
@@ -122,6 +123,7 @@ export async function planTask(goal: string, context: AgentContext) {
 export async function runSubtask(
   subtask: SubtaskRecord,
   sessionContext: AgentSessionContext,
+  options: { onToolRun?: (toolRun: ToolRun) => void } = {},
 ): Promise<AgentResponse> {
   const { runAgent } = await import("@/lib/agent/run-agent");
   const task = [
@@ -133,6 +135,7 @@ export async function runSubtask(
 
   return runAgent(task, [], sessionContext, `subtask_${subtask.id}`, {
     disableTaskPlanning: true,
+    onToolRun: options.onToolRun,
     projectId: sessionContext.projectId ?? undefined,
     sessionId: sessionContext.sessionId ?? undefined,
   });

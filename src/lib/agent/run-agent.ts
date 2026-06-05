@@ -190,6 +190,21 @@ function createSubtaskSummary(subtasks: SubtaskRecord[]) {
     .join("\n\n");
 }
 
+function getSubtaskBlockingFailure(toolRuns: ToolRun[]) {
+  const failedCommand = toolRuns.find(
+    (toolRun) => toolRun.name === "safe_command" && !toolRun.result.ok,
+  );
+
+  if (!failedCommand) {
+    return null;
+  }
+
+  return [
+    `Subtask command failed: ${failedCommand.inputText}`,
+    failedCommand.result.content,
+  ].join("\n");
+}
+
 async function runTaskPlanFlow(input: {
   context: AgentContext;
   goal: string;
@@ -257,7 +272,12 @@ async function runTaskPlanFlow(input: {
       );
 
       try {
-        const result = await runSubtask(subtask, currentSessionContext);
+        const subtaskToolRuns: ToolRun[] = [];
+        const result = await runSubtask(subtask, currentSessionContext, {
+          onToolRun(toolRun) {
+            subtaskToolRuns.push(toolRun);
+          },
+        });
         currentSessionContext = result.sessionContext;
 
         if (
@@ -283,6 +303,43 @@ async function runTaskPlanFlow(input: {
             sessionContext: result.sessionContext,
             steps: input.steps,
           };
+        }
+
+        const blockingFailure = getSubtaskBlockingFailure(subtaskToolRuns);
+        if (blockingFailure) {
+          updateSubtaskStatus({
+            id: subtask.id,
+            result: blockingFailure,
+            status: "failed",
+          });
+
+          if (attempts >= 2) {
+            await input.pushStep(
+              createStep(
+                `act-subtask-${subtask.id}-failed`,
+                "Act",
+                `Stop after retrying the failed subtask. Error: ${blockingFailure}`,
+              ),
+            );
+
+            return {
+              message: createMessage(
+                [
+                  "Task planning stopped because one subtask failed after retry.",
+                  "",
+                  `Failed subtask: ${subtask.description}`,
+                  `Error: ${blockingFailure}`,
+                  "",
+                  "Completed subtasks:",
+                  createSubtaskSummary(completedSubtasks),
+                ].join("\n"),
+              ),
+              sessionContext: currentSessionContext,
+              steps: input.steps,
+            };
+          }
+
+          continue;
         }
 
         updateSubtaskStatus({
