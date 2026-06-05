@@ -52,6 +52,24 @@ export function normalizeSessionContext(
       normalizeMaxToolCalls(sessionContext.maxToolCalls) ?? undefined,
     projectId: sessionContext.projectId?.trim() || null,
     readOnly: sessionContext.readOnly === true,
+    requiredValidations: Array.isArray(sessionContext.requiredValidations)
+      ? sessionContext.requiredValidations
+          .filter(
+            (validation) =>
+              validation &&
+              typeof validation.command === "string" &&
+              Array.isArray(validation.args) &&
+              typeof validation.id === "string" &&
+              typeof validation.label === "string",
+          )
+          .map((validation) => ({
+            ...validation,
+            args: validation.args.filter((arg): arg is string => typeof arg === "string"),
+            command: validation.command.trim(),
+            id: validation.id.trim(),
+            label: validation.label.trim(),
+          }))
+      : undefined,
     sessionId: sessionContext.sessionId?.trim() || null,
     workspacePathOverride: sessionContext.workspacePathOverride?.trim() || null,
     pendingDraft: sessionContext.pendingDraft

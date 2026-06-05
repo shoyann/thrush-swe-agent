@@ -92,6 +92,10 @@ export async function planTask(goal: string, context: AgentContext) {
         "You break a coding-agent task into a short ordered subtask list.",
         "Return only valid JSON with this exact shape: {\"subtasks\": string[]}.",
         "Each subtask must be independently runnable by the same agent.",
+        "Prefix each subtask with one of: [analyze], [implement], or [validate].",
+        "[analyze] subtasks must inspect files with read_file, tree_files, or search_text before running commands.",
+        "[implement] subtasks must apply code changes with replace_text or write_file when exact edits are known.",
+        "[validate] subtasks should run the required validation commands.",
         "Keep subtasks concrete and outcome-focused.",
         "Do not include a subtask that only says to report back.",
         "Prefer 2 to 5 subtasks.",
@@ -131,6 +135,7 @@ export async function runSubtask(
     `Current subtask: ${subtask.description}`,
     "",
     "Complete only the current subtask. Use the existing automatic loop. Do not re-plan the parent task.",
+    "Tool discipline: if this is an [analyze] subtask, inspect files first and do not run validation commands as the first action. If this is an [implement] subtask and exact edits are known, use replace_text or write_file. If this is a [validate] subtask, run the requested validation command.",
   ].join("\n");
 
   return runAgent(task, [], sessionContext, `subtask_${subtask.id}`, {

@@ -64,6 +64,13 @@ const loadingSteps: AgentStep[] = [
 const thinkingFragments = ["top", "right", "bottom", "left"] as const;
 const agentApiSecret = process.env.NEXT_PUBLIC_AGENT_API_SECRET?.trim();
 
+function apiHeaders(extraHeaders: Record<string, string> = {}) {
+  return {
+    ...extraHeaders,
+    ...(agentApiSecret ? { Authorization: `Bearer ${agentApiSecret}` } : {}),
+  };
+}
+
 type AgentErrorEvent = {
   message: string;
   type: "error";
@@ -179,7 +186,9 @@ export function ChatShell() {
   }, [messages]);
 
   async function loadWorkbench(selectSessionId?: string) {
-    const response = await fetch("/api/projects");
+    const response = await fetch("/api/projects", {
+      headers: apiHeaders(),
+    });
     if (!response.ok) {
       throw new Error(await readBackendErrorMessage(response));
     }
@@ -194,7 +203,9 @@ export function ChatShell() {
   }
 
   async function loadSession(sessionId: string) {
-    const response = await fetch(`/api/sessions/${sessionId}`);
+    const response = await fetch(`/api/sessions/${sessionId}`, {
+      headers: apiHeaders(),
+    });
     if (!response.ok) {
       throw new Error(await readBackendErrorMessage(response));
     }
@@ -298,12 +309,7 @@ export function ChatShell() {
       };
       const response = await fetch("/api/agent", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(agentApiSecret
-            ? { Authorization: `Bearer ${agentApiSecret}` }
-            : {}),
-        },
+        headers: apiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
 
@@ -389,6 +395,30 @@ export function ChatShell() {
     await submitTask(task, displayTask);
   }
 
+  async function updateAutoApprove(autoApprove: boolean) {
+    if (!activeSession || isLoading) {
+      return;
+    }
+
+    const response = await fetch(`/api/sessions/${activeSession.id}/settings`, {
+      method: "PATCH",
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ autoApprove }),
+    });
+
+    if (!response.ok) {
+      window.alert(await readBackendErrorMessage(response));
+      return;
+    }
+
+    const payload = (await response.json()) as {
+      session: SessionDetail;
+      snapshot: WorkbenchSnapshot;
+    };
+    setSnapshot(payload.snapshot);
+    setActiveSession(payload.session);
+  }
+
   async function createProjectFromPrompt() {
     if (isLoading) {
       return;
@@ -414,7 +444,7 @@ export function ChatShell() {
 
     const response = await fetch("/api/projects", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         confirmWorkspace: true,
         name,
@@ -445,7 +475,7 @@ export function ChatShell() {
 
     const response = await fetch(`/api/projects/${projectId}/sessions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ title: "New session" }),
     });
 
@@ -577,8 +607,19 @@ export function ChatShell() {
               <p className="session-subtitle">
                 {formatActiveWorkspacePath(activeProject, sessionContext)}
                 {sessionContext.readOnly ? " | read-only" : ""}
+                {sessionContext.autoApprove ? " | autoApprove on" : " | autoApprove off"}
               </p>
             </div>
+            {activeSession ? (
+              <button
+                className="small-button"
+                type="button"
+                disabled={isLoading || sessionContext.readOnly === true}
+                onClick={() => void updateAutoApprove(!sessionContext.autoApprove)}
+              >
+                {sessionContext.autoApprove ? "Disable autoApprove" : "Enable autoApprove"}
+              </button>
+            ) : null}
           </div>
 
           <div ref={messageViewportRef} className="message-viewport">

@@ -8,6 +8,7 @@ import type { ToolRun } from "@/lib/agent/tool-run-types";
 
 export type RunAgentOptions = {
   disableTaskPlanning?: boolean;
+  emitFinalEvents?: boolean;
   onEvent?: (event: AgentStreamEvent) => void | Promise<void>;
   onToolRun?: (toolRun: ToolRun) => void | Promise<void>;
   projectId?: string;
@@ -65,9 +66,14 @@ export async function finishAgentRun(
   response: AgentResponse,
   onEvent: RunAgentOptions["onEvent"],
   includeSteps: boolean,
+  emitFinalEvents = true,
 ) {
   if (includeSteps) {
     await emitStepsSnapshot(response.steps, onEvent);
+  }
+
+  if (!emitFinalEvents) {
+    return response;
   }
 
   await emitAgentEvent(onEvent, {

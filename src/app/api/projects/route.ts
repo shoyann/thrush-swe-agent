@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
 import { createProject, ensureWorkbench } from "@/lib/db/store";
+import { requireAgentApiAuth } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = requireAgentApiAuth(request);
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   return NextResponse.json(ensureWorkbench());
 }
 
 export async function POST(request: Request) {
+  const unauthorized = requireAgentApiAuth(request);
+  if (unauthorized) {
+    return unauthorized;
+  }
+
   let body: {
     confirmWorkspace?: unknown;
     name?: unknown;

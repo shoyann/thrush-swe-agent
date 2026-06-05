@@ -12,6 +12,7 @@ import { getWorkspaceRoot, resolveWorkspacePath } from "./workspace-path";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_LENGTH = 8_000;
+const SAFE_COMMAND_TIMEOUT_MS = 120_000;
 const BLOCKED_COMMANDS = new Set([
   "bash",
   "cmd",
@@ -608,6 +609,7 @@ async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult
       {
         cwd: getWorkspaceRoot(),
         maxBuffer: 1024 * 1024,
+        timeout: SAFE_COMMAND_TIMEOUT_MS,
         windowsHide: true,
       },
     );

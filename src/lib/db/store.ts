@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type {
   AgentSessionContext,
@@ -115,6 +115,24 @@ function mapProjectSummary(row: ProjectRow, sessions: SessionSummary[]): Project
   };
 }
 
+function resolveLikelyWorkspaceRoot(workspacePath: string) {
+  if (existsSync(path.join(workspacePath, "package.json"))) {
+    return workspacePath;
+  }
+
+  const childProjectPaths = readdirSync(workspacePath)
+    .map((entryName) => path.join(workspacePath, entryName))
+    .filter((childPath) => {
+      try {
+        return statSync(childPath).isDirectory() && existsSync(path.join(childPath, "package.json"));
+      } catch {
+        return false;
+      }
+    });
+
+  return childProjectPaths.length === 1 ? childProjectPaths[0] : workspacePath;
+}
+
 function mapSubtask(row: SubtaskRow): SubtaskRecord {
   return {
     createdAt: row.created_at,
@@ -222,7 +240,9 @@ export function createProject(input: {
   const db = getDb();
   const timestamp = now();
   const projectId = createId("proj");
-  const workspacePath = normalizeWorkspacePath(input.workspacePath);
+  const workspacePath = resolveLikelyWorkspaceRoot(
+    normalizeWorkspacePath(input.workspacePath),
+  );
   const name = input.name.trim() || path.basename(workspacePath) || "Untitled project";
 
   db.prepare(
@@ -329,6 +349,32 @@ export function updateSessionState(
       timestamp,
       sessionId,
     );
+}
+
+export function updateSessionSettings(
+  sessionId: string,
+  settings: {
+    autoApprove?: boolean;
+  },
+) {
+  const session = getSession(sessionId);
+
+  if (!session) {
+    throw new Error("Session was not found.");
+  }
+
+  const nextContext: AgentSessionContext = {
+    ...session.sessionContext,
+    autoApprove:
+      settings.autoApprove === undefined
+        ? session.sessionContext.autoApprove === true
+        : settings.autoApprove === true,
+    sessionId,
+  };
+
+  updateSessionState(sessionId, nextContext, session.steps);
+
+  return getSession(sessionId);
 }
 
 function touchSession(sessionId: string, timestamp = now()) {
