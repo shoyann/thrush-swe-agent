@@ -11,6 +11,7 @@
   },
   "include": [
     "src/lib/tools/safe-command.ts",
+    "src/lib/tools/swe-agent.ts",
     "src/lib/tools/types.ts",
     "src/lib/tools/workspace-path.ts",
     "src/lib/agent/intent.ts",
