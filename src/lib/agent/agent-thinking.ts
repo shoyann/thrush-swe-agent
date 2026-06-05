@@ -47,6 +47,7 @@ import {
   buildFileModificationSystemPrompt,
   buildPlannerSystemPrompt,
 } from "./prompts";
+import { isFileModificationRequest as isFileModificationIntent } from "@/lib/agent/intent";
 
 export type AgentContext = {
   cleanTask: string;
@@ -260,10 +261,7 @@ function buildMessagesWithToolRuns(baseMessages: LlmMessage[], toolRuns: ToolRun
 }
 
 export function isFileModificationRequest(task: string) {
-  return (
-    /(modify|edit|update|change|append|replace|rewrite|revise|write|create|overwrite|delete|remove)/i.test(task) ||
-    /(修改|编辑|更新|改动|追加|替换|重写|删除|增加)/u.test(task)
-  );
+  return isFileModificationIntent(task);
 }
 
 export async function think(
@@ -378,6 +376,109 @@ export async function think(
       `think-${roundNumber}`,
       "Think",
       `Plan round ${roundNumber}: ${plan.join(" ")} Available tools: ${availableTools.map((tool) => tool.name).join(", ")}. Next action: ${nextAction}`,
+    ),
+  };
+}
+
+export async function forceEditWithToolResults(
+  context: AgentContext,
+  goal: string,
+  toolRuns: ToolRun[],
+  roundNumber: number,
+): Promise<ThoughtResult> {
+  if (context.sessionContext.readOnly) {
+    return {
+      assistantMessage: null,
+      directAnswer:
+        "Current session is read-only, so I cannot prepare a file modification draft.",
+      nextAction: "Return a read-only mode refusal instead of preparing a write draft.",
+      plan: [
+        "Review the collected file context.",
+        "Notice that this session is read-only.",
+        "Stop before preparing a write draft.",
+      ],
+      toolCallId: null,
+      toolName: null,
+      toolInput: null,
+      step: createStep(
+        `think-${roundNumber}`,
+        "Think",
+        "Force-edit check stopped because this session is read-only.",
+      ),
+    };
+  }
+
+  const reply = await callModelForToolDecision(
+    context.model,
+    buildMessagesWithToolRuns(
+      [
+        {
+          role: "system",
+          content: [
+            "The user asked for a code modification or bug fix.",
+            "You already have file/tool evidence in the conversation history.",
+            "If the exact edit is supported by that evidence, call exactly one tool: replace_text or write_file.",
+            "Do not provide manual editing instructions when a safe file draft can be prepared.",
+            "If there is not enough evidence to edit safely, answer briefly with the missing evidence and do not claim files changed.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: [
+            "Older conversation summary:",
+            formatConversationSummaryForModel(context.sessionContext),
+            "",
+            "Recent conversation:",
+            formatConversationForModel(context.recentConversation),
+            "",
+            "Session reference hints:",
+            formatSessionContextForModel(context.sessionContext),
+            "",
+            `Original task: ${goal}`,
+            "",
+            "Use the completed tool results below to prepare one concrete file edit if possible.",
+          ].join("\n"),
+        },
+      ],
+      toolRuns,
+    ),
+    ["replace_text", "write_file"],
+  );
+
+  const normalizedToolInput = reply.toolCall
+    ? normalizeToolInput(reply.toolCall.name, reply.toolCall.input, goal)
+    : null;
+  const plannedToolCall =
+    reply.toolCall && normalizedToolInput
+      ? {
+          id: reply.toolCall.id,
+          name: reply.toolCall.name,
+          input: normalizedToolInput,
+        }
+      : null;
+  const directAnswer = reply.content;
+  const nextAction = plannedToolCall
+    ? `Prepare a ${plannedToolCall.name} draft from the collected file context.`
+    : directAnswer
+      ? "Return why no safe file edit can be prepared from the collected evidence."
+      : "Return a grounded no-edit answer because the forced edit decision was invalid.";
+
+  return {
+    assistantMessage: reply.assistantMessage,
+    directAnswer,
+    nextAction,
+    plan: [
+      "Review the collected file context.",
+      "Attempt one concrete edit tool decision.",
+      "Only answer without editing if the evidence is insufficient.",
+    ],
+    toolCallId: plannedToolCall?.id ?? null,
+    toolName: plannedToolCall?.name ?? null,
+    toolInput: plannedToolCall?.input ?? null,
+    step: createStep(
+      `think-${roundNumber}`,
+      "Think",
+      `Force an edit-focused decision before finalizing an edit request. Next action: ${nextAction}`,
     ),
   };
 }

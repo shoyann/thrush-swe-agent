@@ -26,11 +26,11 @@ export const CANCEL_WRITE_COMMAND = "CANCEL_WRITE";
 function readMaxToolCalls() {
   const rawValue = process.env.AGENT_MAX_TOOL_CALLS?.trim();
   if (!rawValue || !/^\d+$/.test(rawValue)) {
-    return 4;
+    return 8;
   }
 
   const parsedValue = Number(rawValue);
-  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : 4;
+  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : 8;
 }
 
 export const MAX_TOOL_CALLS = readMaxToolCalls();

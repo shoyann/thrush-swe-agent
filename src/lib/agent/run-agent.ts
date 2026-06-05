@@ -50,10 +50,12 @@ import { runToolCall } from "@/lib/agent/tool-runner";
 import {
   answerDirectly,
   answerWithToolResults,
+  forceEditWithToolResults,
   perceive,
   think,
   thinkStrategies,
   type AgentContext,
+  type ThoughtResult,
 } from "@/lib/agent/agent-thinking";
 import {
   classifySafeCommandIntent,
@@ -203,6 +205,10 @@ function createSubtaskSummary(subtasks: SubtaskRecord[]) {
 
 function hasSafeCommandToolName(toolName: string | null) {
   return toolName === "safe_command";
+}
+
+function hasWriteToolName(toolName: string | null) {
+  return toolName === "replace_text" || toolName === "write_file";
 }
 
 function createGroundedFinalMessage(input: {
@@ -801,7 +807,11 @@ export async function runAgent(
   context.sessionContext = withLedgerSessionContext(context.sessionContext, ledger);
   await pushStep(perception.step);
 
-  if (!options.disableTaskPlanning && context.sessionContext.sessionId) {
+  if (
+    !options.disableTaskPlanning &&
+    context.sessionContext.sessionId &&
+    !isFileModificationRequest(perception.goal)
+  ) {
     const decomposition = await shouldDecomposeTask(perception.goal, context);
     await pushStep(
       createStep(
@@ -827,17 +837,52 @@ export async function runAgent(
   }
 
   const toolRuns: ToolRun[] = [];
+  let forcedEditAttempted = false;
 
   while (true) {
     const roundNumber = toolRuns.length + 1;
     const maxToolCalls = getEffectiveMaxToolCalls(context.sessionContext);
     logger.info("agent loop iteration start", { loopCount: roundNumber });
-    const strategy = thinkStrategies.find((strategy) =>
-      strategy.match(toolRuns, perception.goal),
-    );
-    const thought = strategy
-      ? await strategy.think({ context, perception, roundNumber, toolRuns })
-      : await think(context, perception, toolRuns);
+    const shouldForceEdit =
+      isFileModificationRequest(perception.goal) &&
+      !context.sessionContext.readOnly &&
+      !ledger.appliedOrDraftedWrite &&
+      ledger.readCount > 0 &&
+      !forcedEditAttempted;
+    let thought: ThoughtResult;
+
+    if (toolRuns.length >= maxToolCalls && shouldForceEdit) {
+      forcedEditAttempted = true;
+      thought = await forceEditWithToolResults(
+        context,
+        perception.goal,
+        toolRuns,
+        roundNumber,
+      );
+    } else {
+      const strategy = thinkStrategies.find((strategy) =>
+        strategy.match(toolRuns, perception.goal),
+      );
+      thought = strategy
+        ? await strategy.think({ context, perception, roundNumber, toolRuns })
+        : await think(context, perception, toolRuns);
+
+      if (
+        shouldForceEdit &&
+        (!thought.toolName ||
+          !thought.toolInput ||
+          (hasSafeCommandToolName(thought.toolName) &&
+            toolRuns.length + 1 >= maxToolCalls))
+      ) {
+        forcedEditAttempted = true;
+        thought = await forceEditWithToolResults(
+          context,
+          perception.goal,
+          toolRuns,
+          roundNumber,
+        );
+      }
+    }
 
     await pushStep(thought.step);
 
@@ -916,6 +961,40 @@ export async function runAgent(
               "I found code context for this edit request, but I did not modify files before the tool budget was exhausted.",
             goal: perception.goal,
             ledger,
+          }),
+          sessionContext: withLedgerSessionContext(
+            buildNextSessionContext(context.sessionContext, toolRuns),
+            ledger,
+          ),
+          steps,
+        },
+        false,
+        toolRuns.length,
+      );
+    }
+
+    if (toolRuns.length >= maxToolCalls && !hasWriteToolName(thought.toolName)) {
+      const finalReply = await answerWithToolResults(
+        context,
+        perception.goal,
+        toolRuns,
+      );
+
+      await pushStep(
+        createStep(
+          `act-${roundNumber}`,
+          "Act",
+          `Stop before dispatching "${thought.toolName}" because the safety tool budget of ${maxToolCalls} is exhausted.`,
+        ),
+      );
+
+      return finishWithLogging(
+        {
+          message: createGroundedFinalMessage({
+            content: finalReply.content,
+            goal: perception.goal,
+            ledger,
+            reasoningContent: finalReply.reasoning_content,
           }),
           sessionContext: withLedgerSessionContext(
             buildNextSessionContext(context.sessionContext, toolRuns),
