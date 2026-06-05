@@ -4,9 +4,11 @@ import type {
   AgentStep,
   ChatMessage,
 } from "@/types/agent";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { createLogger } from "@/lib/logger";
 import { listTools } from "@/lib/tools/tool-registry";
-import { withWorkspaceRoot } from "@/lib/tools/workspace-path";
+import { getWorkspaceRoot, withWorkspaceRoot } from "@/lib/tools/workspace-path";
 import {
   normalizeSessionContext,
   prepareConversationContext,
@@ -59,9 +61,12 @@ import {
 } from "@/lib/agent/agent-thinking";
 import {
   classifySafeCommandIntent,
+  createImplicitNpmTestValidation,
   extractRequiredValidations,
   isFileModificationRequest,
   looksLikeManualEditInstructions,
+  prefersChinese,
+  type RequiredValidation,
 } from "@/lib/agent/intent";
 import {
   createRunLedger,
@@ -211,6 +216,161 @@ function hasWriteToolName(toolName: string | null) {
   return toolName === "replace_text" || toolName === "write_file";
 }
 
+function hasPackageJsonTestScript() {
+  try {
+    const packageJsonPath = path.join(getWorkspaceRoot(), "package.json");
+
+    if (!existsSync(packageJsonPath)) {
+      return false;
+    }
+
+    const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+      scripts?: Record<string, unknown>;
+    };
+
+    return typeof parsed.scripts?.test === "string";
+  } catch {
+    return false;
+  }
+}
+
+function getRunRequiredValidations(
+  goal: string,
+  sessionContext: AgentSessionContext,
+): RequiredValidation[] {
+  if (sessionContext.requiredValidations?.length) {
+    return sessionContext.requiredValidations;
+  }
+
+  const explicitValidations = extractRequiredValidations(goal);
+  if (explicitValidations.length > 0) {
+    return explicitValidations;
+  }
+
+  return isFileModificationRequest(goal) && hasPackageJsonTestScript()
+    ? [createImplicitNpmTestValidation()]
+    : [];
+}
+
+function createSafeCommandThought(
+  validation: RequiredValidation,
+  roundNumber: number,
+): ThoughtResult {
+  const toolCallId = createSyntheticToolCallId();
+  const toolInput = {
+    command: validation.command,
+    args: validation.args,
+  };
+
+  return {
+    assistantMessage: {
+      role: "assistant",
+      content: "",
+      reasoning_content: "",
+      tool_calls: [
+        {
+          id: toolCallId,
+          type: "function",
+          function: {
+            name: "safe_command",
+            arguments: formatToolExecutionInput(toolInput),
+          },
+        },
+      ],
+    },
+    directAnswer: null,
+    nextAction: `Run required validation: ${validation.label}.`,
+    plan: [
+      "A file change was prepared or applied.",
+      "Run the required validation before finalizing.",
+    ],
+    step: createStep(
+      `think-${roundNumber}`,
+      "Think",
+      `Run required validation "${validation.label}" after the latest file change.`,
+    ),
+    toolCallId,
+    toolInput,
+    toolName: "safe_command",
+  };
+}
+
+function getNextValidationToRun(ledger: ReturnType<typeof createRunLedger>) {
+  return ledger.requiredValidations.find(
+    (validation) => !validation.satisfiedByToolCallId && !validation.lastFailure,
+  ) ?? null;
+}
+
+function getFailedValidation(ledger: ReturnType<typeof createRunLedger>) {
+  return ledger.requiredValidations.find(
+    (validation) => !validation.satisfiedByToolCallId && validation.lastFailure,
+  ) ?? null;
+}
+
+function formatCommandLabel(commandRun: ReturnType<typeof createRunLedger>["commandRuns"][number]) {
+  return `${commandRun.command} ${commandRun.args.join(" ")}`.trim();
+}
+
+function createConciseGroundedContent(input: {
+  content: string;
+  goal: string;
+  ledger: ReturnType<typeof createRunLedger>;
+}) {
+  const wantsChinese = prefersChinese(input.goal);
+  const uniqueWritePaths = [...new Set(input.ledger.writePaths)];
+  const missingValidations = getMissingRequiredValidations(input.ledger);
+  const latestCommand = input.ledger.commandRuns.at(-1);
+  const hasEvidence =
+    uniqueWritePaths.length > 0 ||
+    input.ledger.commandRuns.length > 0 ||
+    missingValidations.length > 0;
+
+  if (!hasEvidence && !looksLikeManualEditInstructions(input.content)) {
+    return input.content.trim();
+  }
+
+  const lines: string[] = [];
+
+  if (uniqueWritePaths.length > 0) {
+    lines.push(
+      wantsChinese
+        ? `已修改：${uniqueWritePaths.join(", ")}`
+        : `Changed: ${uniqueWritePaths.join(", ")}`,
+    );
+  } else if (isFileModificationRequest(input.goal)) {
+    lines.push(wantsChinese ? "未修改文件。" : "No files were modified.");
+  }
+
+  if (latestCommand) {
+    const label = formatCommandLabel(latestCommand);
+    lines.push(
+      latestCommand.ok
+        ? wantsChinese
+          ? `验证：✓ ${label}`
+          : `Validation: ✓ ${label}`
+        : wantsChinese
+          ? `验证：✗ ${label}`
+          : `Validation: ✗ ${label}`,
+    );
+  } else if (input.ledger.requiredValidations.length > 0) {
+    lines.push(wantsChinese ? "验证：未运行。" : "Validation: not run.");
+  }
+
+  if (missingValidations.length > 0) {
+    lines.push(
+      wantsChinese
+        ? `未完成：缺少或失败的验证：${missingValidations.map((validation) => validation.label).join(", ")}。`
+        : `Not complete: missing or failed validation: ${missingValidations.map((validation) => validation.label).join(", ")}.`,
+    );
+  }
+
+  if (lines.length === 0) {
+    return input.content.trim();
+  }
+
+  return lines.join("\n");
+}
+
 function createGroundedFinalMessage(input: {
   content: string;
   goal: string;
@@ -219,16 +379,18 @@ function createGroundedFinalMessage(input: {
 }) {
   const wantsEdit = isFileModificationRequest(input.goal);
   const missingValidations = getMissingRequiredValidations(input.ledger);
+  const conciseContent = createConciseGroundedContent(input);
   const needsGrounding =
     (wantsEdit && !input.ledger.appliedOrDraftedWrite) ||
     missingValidations.length > 0 ||
-    looksLikeManualEditInstructions(input.content);
+    looksLikeManualEditInstructions(input.content) ||
+    conciseContent !== input.content.trim();
 
   if (!needsGrounding) {
     return createMessage(input.content, input.reasoningContent ?? null);
   }
 
-  const groundedLines = [input.content.trim(), "", formatGroundingSummary(input.ledger)];
+  const groundedLines = [conciseContent, "", formatGroundingSummary(input.ledger)];
 
   if (wantsEdit && !input.ledger.appliedOrDraftedWrite) {
     groundedLines.push(
@@ -799,15 +961,17 @@ export async function runAgent(
   };
 
   const perception = perceive(context);
-  const requiredValidations =
-    context.sessionContext.requiredValidations?.length
-      ? context.sessionContext.requiredValidations
-      : extractRequiredValidations(perception.goal);
+  const requiredValidations = getRunRequiredValidations(
+    perception.goal,
+    context.sessionContext,
+  );
   const ledger = createRunLedger(perception.goal, requiredValidations);
   context.sessionContext = withLedgerSessionContext(context.sessionContext, ledger);
   await pushStep(perception.step);
 
+  const taskPlanningEnabled = false;
   if (
+    taskPlanningEnabled &&
     !options.disableTaskPlanning &&
     context.sessionContext.sessionId &&
     !isFileModificationRequest(perception.goal)
@@ -838,6 +1002,7 @@ export async function runAgent(
 
   const toolRuns: ToolRun[] = [];
   let forcedEditAttempted = false;
+  let validationRetryCount = 0;
 
   while (true) {
     const roundNumber = toolRuns.length + 1;
@@ -849,9 +1014,30 @@ export async function runAgent(
       !ledger.appliedOrDraftedWrite &&
       ledger.readCount > 0 &&
       !forcedEditAttempted;
+    const validationToRun = ledger.appliedOrDraftedWrite
+      ? getNextValidationToRun(ledger)
+      : null;
+    const failedValidation = ledger.appliedOrDraftedWrite
+      ? getFailedValidation(ledger)
+      : null;
     let thought: ThoughtResult;
 
-    if (toolRuns.length >= maxToolCalls && shouldForceEdit) {
+    if (validationToRun) {
+      thought = createSafeCommandThought(validationToRun, roundNumber);
+    } else if (
+      failedValidation &&
+      validationRetryCount < 2 &&
+      ledger.readCount > 0 &&
+      !context.sessionContext.readOnly
+    ) {
+      validationRetryCount += 1;
+      thought = await forceEditWithToolResults(
+        context,
+        perception.goal,
+        toolRuns,
+        roundNumber,
+      );
+    } else if (toolRuns.length >= maxToolCalls && shouldForceEdit) {
       forcedEditAttempted = true;
       thought = await forceEditWithToolResults(
         context,
@@ -973,7 +1159,14 @@ export async function runAgent(
       );
     }
 
-    if (toolRuns.length >= maxToolCalls && !hasWriteToolName(thought.toolName)) {
+    const isRequiredValidationToolCall =
+      !!validationToRun && hasSafeCommandToolName(thought.toolName);
+
+    if (
+      toolRuns.length >= maxToolCalls &&
+      !hasWriteToolName(thought.toolName) &&
+      !isRequiredValidationToolCall
+    ) {
       const finalReply = await answerWithToolResults(
         context,
         perception.goal,
@@ -1083,7 +1276,21 @@ export async function runAgent(
       );
 
       if (autoApprovalResult) {
-        return finishWithLogging(autoApprovalResult, true, toolRuns.length);
+        context.sessionContext = withLedgerSessionContext(
+          {
+            ...groundedSessionContext,
+            ...autoApprovalResult.sessionContext,
+          },
+          ledger,
+        );
+        await replaceLastStep(
+          createStep(
+            `act-${roundNumber}`,
+            "Act",
+            `Auto-approved "${toolRun.name}" draft and continue to required validation.`,
+          ),
+        );
+        continue;
       }
 
       await replaceLastStep(

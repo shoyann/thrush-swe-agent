@@ -9,6 +9,7 @@ import type {
   ToolResult,
 } from "./types";
 import { getWorkspaceRoot, resolveWorkspacePath } from "./workspace-path";
+import { isFileModificationRequest } from "../agent/intent-classifier";
 
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_LENGTH = 8_000;
@@ -155,6 +156,34 @@ function formatSafeCommandReport(report: SafeCommandReport) {
     "stderr:",
     report.stderr || "(empty)",
   ].join("\n");
+}
+
+function summarizeSafeCommandResult(result: ToolResult, input: ToolExecutionInput) {
+  const commandText =
+    typeof input === "string"
+      ? input
+      : `${getStringArg(input, "command")} ${getStringArrayArg(input, "args").join(" ")}`.trim();
+
+  if (result.ok) {
+    return `✓ ${commandText} passed.`;
+  }
+
+  const meaningfulLine =
+    result.content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) =>
+        line &&
+        !line.startsWith("tool:") &&
+        !line.startsWith("status:") &&
+        !line.startsWith("command:") &&
+        !line.startsWith("exit_code:") &&
+        line !== "message:" &&
+        line !== "stdout:" &&
+        line !== "stderr:",
+      ) ?? "Command failed.";
+
+  return `✗ ${commandText} failed. ${meaningfulLine}`;
 }
 
 function isAllowedCommand(command: string): command is SafeExecutable {
@@ -688,16 +717,20 @@ export const safeCommandTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeSafeCommand,
-  onResult(_goal, result, toolRuns) {
+  onResult(goal, result, toolRuns) {
     const toolRun = toolRuns.at(-1);
 
     if (!toolRun || !isVerificationSafeCommandInput(toolRun.input)) {
       return null;
     }
 
+    if (isFileModificationRequest(goal)) {
+      return null;
+    }
+
     return {
       type: "immediate",
-      message: result.content,
+      message: summarizeSafeCommandResult(result, toolRun.input),
     };
   },
 };

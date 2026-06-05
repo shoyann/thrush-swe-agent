@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   classifySafeCommandIntent,
   extractRequiredValidations,
+  getDirectSafeCommandIntent,
   isFileModificationRequest,
   looksLikeManualEditInstructions,
   parseSessionSettingCommand,
@@ -47,10 +48,10 @@ function toolRun(partial: Partial<ToolRun>): ToolRun {
 }
 
 test("Chinese edit and manual-instruction intent is detected", () => {
-  assert.equal(isFileModificationRequest("请修好这些测试失败"), true);
-  assert.equal(isFileModificationRequest("应用修复并运行 npm test"), true);
-  assert.equal(isFileModificationRequest("你倒是修啊！！！"), true);
-  assert.equal(looksLikeManualEditInstructions("请手动把 a 改成 b"), true);
+  assert.equal(isFileModificationRequest("\u8bf7\u4fee\u597d\u8fd9\u4e9b\u6d4b\u8bd5\u5931\u8d25"), true);
+  assert.equal(isFileModificationRequest("\u5e94\u7528\u4fee\u590d\u5e76\u8fd0\u884c npm test"), true);
+  assert.equal(isFileModificationRequest("\u4f60\u5012\u662f\u4fee\u554a\uff01\uff01\uff01"), true);
+  assert.equal(looksLikeManualEditInstructions("\u8bf7\u624b\u52a8\u628a a \u6539\u6210 b"), true);
 });
 
 test("autoApprove text commands parse as real setting commands", () => {
@@ -58,11 +59,11 @@ test("autoApprove text commands parse as real setting commands", () => {
     autoApprove: true,
     kind: "autoApprove",
   });
-  assert.deepEqual(parseSessionSettingCommand("打开全自动模式"), {
+  assert.deepEqual(parseSessionSettingCommand("\u6253\u5f00\u5168\u81ea\u52a8\u6a21\u5f0f"), {
     autoApprove: true,
     kind: "autoApprove",
   });
-  assert.deepEqual(parseSessionSettingCommand("关闭自动批准"), {
+  assert.deepEqual(parseSessionSettingCommand("\u5173\u95ed\u81ea\u52a8\u6279\u51c6"), {
     autoApprove: false,
     kind: "autoApprove",
   });
@@ -70,13 +71,28 @@ test("autoApprove text commands parse as real setting commands", () => {
 
 test("required npm validations are extracted from mixed-language tasks", () => {
   const validations = extractRequiredValidations(
-    "修完后运行 npm test、npm run build、npm run lint，全部通过才算完成",
+    "\u4fee\u5b8c\u540e\u8fd0\u884c npm test\u3001npm run build\u3001npm run lint\uff0c\u5168\u90e8\u901a\u8fc7\u624d\u7b97\u5b8c\u6210",
   );
 
   assert.deepEqual(
     validations.map((validation) => validation.label),
     ["npm test", "npm run build", "npm run lint"],
   );
+});
+
+test("direct safe command intent requires explicit run/check wording", () => {
+  assert.deepEqual(getDirectSafeCommandIntent("\u8dd1\u4e00\u6b21 npm test"), {
+    command: "npm",
+    args: ["test"],
+    label: "npm test",
+  });
+  assert.deepEqual(getDirectSafeCommandIntent("\u68c0\u67e5\u80fd\u4e0d\u80fd\u6784\u5efa"), {
+    command: "npm",
+    args: ["run", "build"],
+    label: "npm run build",
+  });
+  assert.equal(getDirectSafeCommandIntent("build a settings page"), null);
+  assert.equal(getDirectSafeCommandIntent("write tests for settings"), null);
 });
 
 test("failing tests before edits are diagnostic, after edits are validation", () => {
@@ -119,5 +135,52 @@ test("run ledger satisfies required validations only with matching successful co
   assert.deepEqual(
     getMissingRequiredValidations(ledger).map((validation) => validation.label),
     ["npm run build"],
+  );
+});
+
+test("new write invalidates earlier successful validations", () => {
+  const ledger = createRunLedger("run npm test");
+
+  recordLedgerToolRun(
+    ledger,
+    "run npm test",
+    toolRun({
+      input: {
+        command: "npm",
+        args: ["test"],
+      },
+      inputText: '{"command":"npm","args":["test"]}',
+      name: "safe_command",
+      result: {
+        ok: true,
+        content: "passed",
+      },
+      toolCallId: "test-run",
+    }),
+  );
+  assert.equal(getMissingRequiredValidations(ledger).length, 0);
+
+  recordLedgerToolRun(
+    ledger,
+    "run npm test",
+    toolRun({
+      name: "replace_text",
+      result: {
+        ok: true,
+        content: "drafted",
+        draft: {
+          content: "next",
+          id: "draft-1",
+          kind: "write_file",
+          path: "src/example.ts",
+        },
+      },
+      toolCallId: "write-run",
+    }),
+  );
+
+  assert.deepEqual(
+    getMissingRequiredValidations(ledger).map((validation) => validation.label),
+    ["npm test"],
   );
 });
