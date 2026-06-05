@@ -50,12 +50,23 @@ import { runToolCall } from "@/lib/agent/tool-runner";
 import {
   answerDirectly,
   answerWithToolResults,
-  isFileModificationRequest,
   perceive,
   think,
   thinkStrategies,
   type AgentContext,
 } from "@/lib/agent/agent-thinking";
+import {
+  classifySafeCommandIntent,
+  extractRequiredValidations,
+  isFileModificationRequest,
+  looksLikeManualEditInstructions,
+} from "@/lib/agent/intent";
+import {
+  createRunLedger,
+  formatGroundingSummary,
+  getMissingRequiredValidations,
+  recordLedgerToolRun,
+} from "@/lib/agent/run-ledger";
 import {
   planTask,
   runSubtask,
@@ -190,9 +201,65 @@ function createSubtaskSummary(subtasks: SubtaskRecord[]) {
     .join("\n\n");
 }
 
-function getSubtaskBlockingFailure(toolRuns: ToolRun[]) {
+function hasSafeCommandToolName(toolName: string | null) {
+  return toolName === "safe_command";
+}
+
+function createGroundedFinalMessage(input: {
+  content: string;
+  goal: string;
+  ledger: ReturnType<typeof createRunLedger>;
+  reasoningContent?: string | null;
+}) {
+  const wantsEdit = isFileModificationRequest(input.goal);
+  const missingValidations = getMissingRequiredValidations(input.ledger);
+  const needsGrounding =
+    (wantsEdit && !input.ledger.appliedOrDraftedWrite) ||
+    missingValidations.length > 0 ||
+    looksLikeManualEditInstructions(input.content);
+
+  if (!needsGrounding) {
+    return createMessage(input.content, input.reasoningContent ?? null);
+  }
+
+  const groundedLines = [input.content.trim(), "", formatGroundingSummary(input.ledger)];
+
+  if (wantsEdit && !input.ledger.appliedOrDraftedWrite) {
+    groundedLines.push(
+      "",
+      "I did not modify any files in this run because there was no successful write_file or replace_text tool result.",
+    );
+  }
+
+  if (missingValidations.length > 0) {
+    groundedLines.push(
+      "",
+      `I cannot mark this task complete yet. Missing or failed required validation: ${missingValidations.map((validation) => validation.label).join(", ")}.`,
+    );
+  }
+
+  return createMessage(groundedLines.join("\n"), input.reasoningContent ?? null);
+}
+
+function withLedgerSessionContext(
+  sessionContext: AgentSessionContext,
+  ledger: ReturnType<typeof createRunLedger>,
+): AgentSessionContext {
+  return {
+    ...sessionContext,
+    requiredValidations:
+      ledger.requiredValidations.length > 0
+        ? ledger.requiredValidations
+        : sessionContext.requiredValidations,
+  };
+}
+
+function getSubtaskBlockingFailure(goal: string, toolRuns: ToolRun[]) {
   const failedCommand = toolRuns.find(
-    (toolRun) => toolRun.name === "safe_command" && !toolRun.result.ok,
+    (toolRun) =>
+      toolRun.name === "safe_command" &&
+      !toolRun.result.ok &&
+      classifySafeCommandIntent(toolRun.input, goal, false) !== "diagnostic",
   );
 
   if (!failedCommand) {
@@ -208,6 +275,8 @@ function getSubtaskBlockingFailure(toolRuns: ToolRun[]) {
 async function runTaskPlanFlow(input: {
   context: AgentContext;
   goal: string;
+  ledger: ReturnType<typeof createRunLedger>;
+  onToolRun?: (toolRun: ToolRun) => Promise<void> | void;
   pushStep: (step: AgentStep) => Promise<void>;
   sessionId: string;
   steps: AgentStep[];
@@ -276,6 +345,8 @@ async function runTaskPlanFlow(input: {
         const result = await runSubtask(subtask, currentSessionContext, {
           onToolRun(toolRun) {
             subtaskToolRuns.push(toolRun);
+            recordLedgerToolRun(input.ledger, input.goal, toolRun);
+            void input.onToolRun?.(toolRun);
           },
         });
         currentSessionContext = result.sessionContext;
@@ -305,7 +376,10 @@ async function runTaskPlanFlow(input: {
           };
         }
 
-        const blockingFailure = getSubtaskBlockingFailure(subtaskToolRuns);
+        const blockingFailure = getSubtaskBlockingFailure(
+          input.goal,
+          subtaskToolRuns,
+        );
         if (blockingFailure) {
           updateSubtaskStatus({
             id: subtask.id,
@@ -410,9 +484,11 @@ async function runTaskPlanFlow(input: {
         "Task plan complete.",
         "",
         createSubtaskSummary(latestSubtasks),
+        "",
+        formatGroundingSummary(input.ledger),
       ].join("\n"),
     ),
-    sessionContext: currentSessionContext,
+    sessionContext: withLedgerSessionContext(currentSessionContext, input.ledger),
     steps: input.steps,
   };
 }
@@ -427,7 +503,7 @@ export async function runAgent(
   const onEvent = options.onEvent;
   const onToolRun = options.onToolRun;
   const finish = async (response: AgentResponse, includeSteps: boolean) =>
-    finishAgentRun(response, onEvent, includeSteps);
+    finishAgentRun(response, onEvent, includeSteps, options.emitFinalEvents !== false);
   const logger = createLogger(requestId);
   const startedAt = Date.now();
   let loopFinishedLogged = false;
@@ -706,7 +782,6 @@ export async function runAgent(
       readOnly: preparedConversationContext.sessionContext.readOnly === true,
     }).map((tool) => tool.name),
   };
-
   const steps: AgentStep[] = [];
   const pushStep = async (step: AgentStep) => {
     steps.push(step);
@@ -718,6 +793,12 @@ export async function runAgent(
   };
 
   const perception = perceive(context);
+  const requiredValidations =
+    context.sessionContext.requiredValidations?.length
+      ? context.sessionContext.requiredValidations
+      : extractRequiredValidations(perception.goal);
+  const ledger = createRunLedger(perception.goal, requiredValidations);
+  context.sessionContext = withLedgerSessionContext(context.sessionContext, ledger);
   await pushStep(perception.step);
 
   if (!options.disableTaskPlanning && context.sessionContext.sessionId) {
@@ -734,6 +815,8 @@ export async function runAgent(
       const taskPlanResponse = await runTaskPlanFlow({
         context,
         goal: perception.goal,
+        ledger,
+        onToolRun,
         pushStep,
         sessionId: context.sessionContext.sessionId,
         steps,
@@ -792,11 +875,52 @@ export async function runAgent(
 
       return finishWithLogging(
         {
-          message: createMessage(reply.content, reply.reasoning_content),
-          sessionContext:
+          message: createGroundedFinalMessage({
+            content: reply.content,
+            goal: perception.goal,
+            ledger,
+            reasoningContent: reply.reasoning_content,
+          }),
+          sessionContext: withLedgerSessionContext(
             toolRuns.length === 0
               ? context.sessionContext
               : buildNextSessionContext(context.sessionContext, toolRuns),
+            ledger,
+          ),
+          steps,
+        },
+        false,
+        toolRuns.length,
+      );
+    }
+
+    if (
+      isFileModificationRequest(perception.goal) &&
+      !ledger.appliedOrDraftedWrite &&
+      ledger.readCount > 0 &&
+      hasSafeCommandToolName(thought.toolName) &&
+      toolRuns.length + 1 >= maxToolCalls
+    ) {
+      await pushStep(
+        createStep(
+          `act-${roundNumber}`,
+          "Act",
+          "Stop before spending the final tool call on validation because no file change has been drafted or applied yet.",
+        ),
+      );
+
+      return finishWithLogging(
+        {
+          message: createGroundedFinalMessage({
+            content:
+              "I found code context for this edit request, but I did not modify files before the tool budget was exhausted.",
+            goal: perception.goal,
+            ledger,
+          }),
+          sessionContext: withLedgerSessionContext(
+            buildNextSessionContext(context.sessionContext, toolRuns),
+            ledger,
+          ),
           steps,
         },
         false,
@@ -852,6 +976,7 @@ export async function runAgent(
     }
 
     toolRuns.push(toolRun);
+    recordLedgerToolRun(ledger, perception.goal, toolRun);
     await onToolRun?.(toolRun);
 
     await pushStep(
@@ -872,8 +997,9 @@ export async function runAgent(
         context.sessionContext,
         toolRuns,
       );
+      const groundedSessionContext = withLedgerSessionContext(nextSessionContext, ledger);
       const autoApprovalResult = await handleAutoWriteApproval(
-        nextSessionContext,
+        groundedSessionContext,
         toolRun.result.draft ?? null,
       );
 
@@ -892,7 +1018,7 @@ export async function runAgent(
       return finishWithLogging(
         {
           message: createMessage(immediateOutcome.message),
-          sessionContext: nextSessionContext,
+          sessionContext: groundedSessionContext,
           steps,
         },
         false,
@@ -930,8 +1056,16 @@ export async function runAgent(
 
       return finishWithLogging(
         {
-          message: createMessage(finalReply.content, finalReply.reasoning_content),
-          sessionContext: buildNextSessionContext(context.sessionContext, toolRuns),
+          message: createGroundedFinalMessage({
+            content: finalReply.content,
+            goal: perception.goal,
+            ledger,
+            reasoningContent: finalReply.reasoning_content,
+          }),
+          sessionContext: withLedgerSessionContext(
+            buildNextSessionContext(context.sessionContext, toolRuns),
+            ledger,
+          ),
           steps,
         },
         false,
@@ -956,8 +1090,16 @@ export async function runAgent(
 
       return finishWithLogging(
         {
-          message: createMessage(finalReply.content, finalReply.reasoning_content),
-          sessionContext: buildNextSessionContext(context.sessionContext, toolRuns),
+          message: createGroundedFinalMessage({
+            content: finalReply.content,
+            goal: perception.goal,
+            ledger,
+            reasoningContent: finalReply.reasoning_content,
+          }),
+          sessionContext: withLedgerSessionContext(
+            buildNextSessionContext(context.sessionContext, toolRuns),
+            ledger,
+          ),
           steps,
         },
         false,

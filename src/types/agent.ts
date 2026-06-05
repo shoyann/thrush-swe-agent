@@ -22,6 +22,16 @@ export type PendingWorkspaceSwitch = {
   workspacePath: string;
 };
 
+export type RequiredValidation = {
+  args: string[];
+  command: string;
+  id: string;
+  label: string;
+  lastFailure?: string;
+  satisfiedAt?: number;
+  satisfiedByToolCallId?: string;
+};
+
 export type AgentSessionContext = {
   autoApprove?: boolean;
   conversationSummary?: string | null;
@@ -34,6 +44,7 @@ export type AgentSessionContext = {
   pendingWorkspaceSwitch?: PendingWorkspaceSwitch | null;
   projectId?: string | null;
   readOnly?: boolean | null;
+  requiredValidations?: RequiredValidation[];
   sessionId?: string | null;
   workspacePathOverride?: string | null;
 };

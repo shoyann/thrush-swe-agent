@@ -9,11 +9,14 @@ import {
   createCheckpoint,
   getSessionProject,
   recordToolRun,
+  updateSessionSettings,
   updateSessionState,
 } from "@/lib/db/store";
 import { createLogger } from "@/lib/logger";
 import { withWorkspaceRoot } from "@/lib/tools/workspace-path";
 import type { AgentRequest, AgentStreamEvent } from "@/types/agent";
+import { parseSessionSettingCommand } from "@/lib/agent/intent";
+import { requireAgentApiAuth } from "@/lib/api-auth";
 
 const encoder = new TextEncoder();
 export const runtime = "nodejs";
@@ -44,19 +47,9 @@ function createImmediateStream(events: AgentStreamEvent[]) {
 }
 
 export async function POST(request: Request) {
-  const agentApiSecret = process.env.AGENT_API_SECRET?.trim();
-  const authorization = request.headers.get("authorization");
-
-  if (!agentApiSecret) {
-    console.warn(
-      "AGENT_API_SECRET is not set. Rejecting /api/agent requests until server-side auth is configured.",
-    );
-
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  if (authorization !== `Bearer ${agentApiSecret}`) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  const unauthorized = requireAgentApiAuth(request);
+  if (unauthorized) {
+    return unauthorized;
   }
 
   const requestId = "req_" + Math.random().toString(36).slice(2, 8);
@@ -107,12 +100,56 @@ export async function POST(request: Request) {
     sessionId,
   });
   const messagesForAgent = [...session.messages, userMessage];
+  const clientSessionContext = body.sessionContext ?? {};
   const sessionContext = {
     ...session.sessionContext,
-    ...body.sessionContext,
+    ...(typeof clientSessionContext.maxToolCalls === "number"
+      ? { maxToolCalls: clientSessionContext.maxToolCalls }
+      : {}),
     projectId: project.id,
     sessionId,
   };
+  const settingCommand = parseSessionSettingCommand(task);
+
+  if (settingCommand?.kind === "autoApprove") {
+    const updatedSession = updateSessionSettings(sessionId, {
+      autoApprove: settingCommand.autoApprove,
+    });
+    const nextSessionContext = updatedSession?.sessionContext ?? {
+      ...sessionContext,
+      autoApprove: settingCommand.autoApprove,
+    };
+    const message = settingCommand.autoApprove
+      ? "autoApprove is now enabled for this session. Read-only mode still blocks file writes."
+      : "autoApprove is now disabled for this session.";
+    const assistantMessage = appendMessage({
+      content: message,
+      role: "assistant",
+      sessionId,
+    });
+    const result = {
+      message: assistantMessage,
+      sessionContext: nextSessionContext,
+      steps: [
+        {
+          id: "settings",
+          title: "Act",
+          detail: "Persist the requested session setting before running the agent loop.",
+          status: "done" as const,
+        },
+      ],
+    };
+
+    if (body.stream) {
+      return createImmediateStream([
+        { type: "steps", steps: result.steps },
+        { type: "message", message: result.message },
+        { type: "done", sessionContext: result.sessionContext },
+      ]);
+    }
+
+    return NextResponse.json(result);
+  }
   const workspaceSwitchResult = handleWorkspaceSwitchTask({
     projectId: project.id,
     projectWorkspacePath: project.workspacePath,
@@ -180,11 +217,21 @@ export async function POST(request: Request) {
   if (body.stream) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
+        let closed = false;
+        const safeEnqueue = (event: AgentStreamEvent | { type: "error"; message: string }) => {
+          if (closed || request.signal.aborted) {
+            return;
+          }
+
+          controller.enqueue(serializeStreamEvent(event));
+        };
+
         try {
           const result = await withWorkspaceRoot(effectiveWorkspacePath, () =>
             runAgent(task, messagesForAgent, sessionContext, requestId, {
+              emitFinalEvents: false,
               onEvent(event) {
-                controller.enqueue(serializeStreamEvent(event));
+                safeEnqueue(event);
               },
               onToolRun(toolRun) {
                 recordToolRun({
@@ -205,7 +252,7 @@ export async function POST(request: Request) {
             }),
           );
 
-          appendMessage({
+          const assistantMessage = appendMessage({
             content: result.message.content,
             reasoningContent: result.message.reasoning_content ?? null,
             role: "assistant",
@@ -224,20 +271,23 @@ export async function POST(request: Request) {
           logger.info("agent request completed", {
             durationMs: Date.now() - startTime,
           });
+          safeEnqueue({ type: "message", message: assistantMessage });
+          safeEnqueue({ type: "done", sessionContext: result.sessionContext });
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "The agent request failed.";
 
           logger.error("agent request failed", { error: message });
 
-          controller.enqueue(
-            serializeStreamEvent({
-              type: "error",
-              message,
-            }),
-          );
+          safeEnqueue({
+            type: "error",
+            message,
+          });
         } finally {
-          controller.close();
+          closed = true;
+          if (!request.signal.aborted) {
+            controller.close();
+          }
         }
       },
     });
