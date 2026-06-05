@@ -45,6 +45,28 @@ type MessageRow = {
   role: "user" | "assistant";
 };
 
+export type SubtaskStatus = "pending" | "running" | "done" | "failed";
+
+export type SubtaskRecord = {
+  createdAt: number;
+  description: string;
+  id: string;
+  parentTask: string;
+  result: string | null;
+  sessionId: string;
+  status: SubtaskStatus;
+};
+
+type SubtaskRow = {
+  created_at: number;
+  description: string;
+  id: string;
+  parent_task: string;
+  result: string | null;
+  session_id: string;
+  status: SubtaskStatus;
+};
+
 const starterSteps: AgentStep[] = [
   {
     id: "waiting",
@@ -93,6 +115,18 @@ function mapProjectSummary(row: ProjectRow, sessions: SessionSummary[]): Project
   };
 }
 
+function mapSubtask(row: SubtaskRow): SubtaskRecord {
+  return {
+    createdAt: row.created_at,
+    description: row.description,
+    id: row.id,
+    parentTask: row.parent_task,
+    result: row.result,
+    sessionId: row.session_id,
+    status: row.status,
+  };
+}
+
 function listSessionRowsForProject(projectId: string) {
   return getDb()
     .prepare(
@@ -102,6 +136,78 @@ function listSessionRowsForProject(projectId: string) {
        ORDER BY updated_at DESC`,
     )
     .all(projectId) as SessionRow[];
+}
+
+export function listSubtasksForParentTask(input: {
+  parentTask: string;
+  sessionId: string;
+}) {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, session_id, parent_task, description, status, result, created_at
+       FROM subtasks
+       WHERE session_id = ? AND parent_task = ?
+       ORDER BY created_at ASC`,
+    )
+    .all(input.sessionId, input.parentTask) as SubtaskRow[];
+
+  return rows.map(mapSubtask);
+}
+
+export function createSubtasks(input: {
+  descriptions: string[];
+  parentTask: string;
+  sessionId: string;
+}) {
+  const timestamp = now();
+  const db = getDb();
+  const insert = db.prepare(
+    `INSERT INTO subtasks
+      (id, session_id, parent_task, description, status, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  const created = db.transaction(() =>
+    input.descriptions.map((description) => {
+      const row: SubtaskRow = {
+        created_at: timestamp,
+        description,
+        id: createId("subtask"),
+        parent_task: input.parentTask,
+        result: null,
+        session_id: input.sessionId,
+        status: "pending",
+      };
+
+      insert.run(
+        row.id,
+        row.session_id,
+        row.parent_task,
+        row.description,
+        row.status,
+        row.result,
+        row.created_at,
+      );
+
+      return row;
+    }),
+  )();
+
+  return created.map(mapSubtask);
+}
+
+export function updateSubtaskStatus(input: {
+  id: string;
+  result?: string | null;
+  status: SubtaskStatus;
+}) {
+  getDb()
+    .prepare(
+      `UPDATE subtasks
+       SET status = ?, result = ?
+       WHERE id = ?`,
+    )
+    .run(input.status, input.result ?? null, input.id);
 }
 
 export function createProject(input: {

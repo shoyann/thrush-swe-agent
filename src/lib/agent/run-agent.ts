@@ -56,6 +56,17 @@ import {
   thinkStrategies,
   type AgentContext,
 } from "@/lib/agent/agent-thinking";
+import {
+  planTask,
+  runSubtask,
+  shouldDecomposeTask,
+} from "@/lib/agent/task-planner";
+import {
+  createSubtasks,
+  listSubtasksForParentTask,
+  updateSubtaskStatus,
+  type SubtaskRecord,
+} from "@/lib/db/store";
 
 type TaskCompletionJudgment = {
   done: boolean;
@@ -155,6 +166,197 @@ function createReadOnlyBlockedResponse(
         "Stop before modifying files and tell the user how to continue.",
       ),
     ],
+  };
+}
+
+function summarizeSubtaskResult(content: string | null | undefined) {
+  const cleanContent = content?.trim();
+
+  if (!cleanContent) {
+    return "No result text was recorded.";
+  }
+
+  return cleanContent.length > 500
+    ? `${cleanContent.slice(0, 500).trim()}...`
+    : cleanContent;
+}
+
+function createSubtaskSummary(subtasks: SubtaskRecord[]) {
+  return subtasks
+    .map(
+      (subtask, index) =>
+        `${index + 1}. [${subtask.status}] ${subtask.description}\n${summarizeSubtaskResult(subtask.result)}`,
+    )
+    .join("\n\n");
+}
+
+async function runTaskPlanFlow(input: {
+  context: AgentContext;
+  goal: string;
+  pushStep: (step: AgentStep) => Promise<void>;
+  sessionId: string;
+  steps: AgentStep[];
+}) {
+  let subtasks = listSubtasksForParentTask({
+    parentTask: input.goal,
+    sessionId: input.sessionId,
+  });
+
+  if (subtasks.length === 0) {
+    const descriptions = await planTask(input.goal, input.context);
+    subtasks = createSubtasks({
+      descriptions,
+      parentTask: input.goal,
+      sessionId: input.sessionId,
+    });
+
+    await input.pushStep(
+      createStep(
+        "think-task-plan",
+        "Think",
+        `Split the task into ${subtasks.length} subtask${subtasks.length === 1 ? "" : "s"}.`,
+      ),
+    );
+  } else {
+    await input.pushStep(
+      createStep(
+        "think-task-plan",
+        "Think",
+        `Resume ${subtasks.length} existing subtask${subtasks.length === 1 ? "" : "s"} for this parent task. Completed subtasks will not be rerun.`,
+      ),
+    );
+  }
+
+  let currentSessionContext = input.context.sessionContext;
+  const completedSubtasks: SubtaskRecord[] = [];
+
+  for (const subtask of subtasks) {
+    if (subtask.status === "done") {
+      completedSubtasks.push(subtask);
+      continue;
+    }
+
+    let attempts = 0;
+    let finishedSubtask: SubtaskRecord | null = null;
+
+    while (!finishedSubtask && attempts < 2) {
+      attempts += 1;
+      updateSubtaskStatus({
+        id: subtask.id,
+        result: subtask.result,
+        status: "running",
+      });
+      await input.pushStep(
+        createStep(
+          `act-subtask-${subtask.id}-${attempts}`,
+          "Act",
+          attempts === 1
+            ? `Run subtask: ${subtask.description}`
+            : `Retry only the failed subtask: ${subtask.description}`,
+        ),
+      );
+
+      try {
+        const result = await runSubtask(subtask, currentSessionContext);
+        currentSessionContext = result.sessionContext;
+
+        if (
+          result.sessionContext.pendingDraft &&
+          result.sessionContext.autoApprove !== true
+        ) {
+          updateSubtaskStatus({
+            id: subtask.id,
+            result: result.message.content,
+            status: "running",
+          });
+
+          await input.pushStep(
+            createStep(
+              `act-subtask-${subtask.id}-waiting`,
+              "Act",
+              "Pause the task plan because this subtask created a pending write draft that still needs approval.",
+            ),
+          );
+
+          return {
+            message: result.message,
+            sessionContext: result.sessionContext,
+            steps: input.steps,
+          };
+        }
+
+        updateSubtaskStatus({
+          id: subtask.id,
+          result: result.message.content,
+          status: "done",
+        });
+        finishedSubtask = {
+          ...subtask,
+          result: result.message.content,
+          status: "done",
+        };
+        completedSubtasks.push(finishedSubtask);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Subtask failed.";
+        updateSubtaskStatus({
+          id: subtask.id,
+          result: errorMessage,
+          status: "failed",
+        });
+
+        if (attempts >= 2) {
+          await input.pushStep(
+            createStep(
+              `act-subtask-${subtask.id}-failed`,
+              "Act",
+              `Stop after retrying the failed subtask. Error: ${errorMessage}`,
+            ),
+          );
+
+          return {
+            message: createMessage(
+              [
+                "Task planning stopped because one subtask failed after retry.",
+                "",
+                `Failed subtask: ${subtask.description}`,
+                `Error: ${errorMessage}`,
+                "",
+                "Completed subtasks:",
+                createSubtaskSummary(completedSubtasks),
+              ].join("\n"),
+            ),
+            sessionContext: currentSessionContext,
+            steps: input.steps,
+          };
+        }
+      }
+    }
+  }
+
+  const latestSubtasks = listSubtasksForParentTask({
+    parentTask: input.goal,
+    sessionId: input.sessionId,
+  });
+
+  await input.pushStep(
+    createStep(
+      "act-task-plan-complete",
+      "Act",
+      "All subtasks are done. Return the combined task result.",
+    ),
+  );
+
+  return {
+    message: createMessage(
+      [
+        "Task plan complete.",
+        "",
+        createSubtaskSummary(latestSubtasks),
+      ].join("\n"),
+    ),
+    sessionContext: currentSessionContext,
+    steps: input.steps,
   };
 }
 
@@ -460,6 +662,29 @@ export async function runAgent(
 
   const perception = perceive(context);
   await pushStep(perception.step);
+
+  if (!options.disableTaskPlanning && context.sessionContext.sessionId) {
+    const decomposition = await shouldDecomposeTask(perception.goal, context);
+    await pushStep(
+      createStep(
+        "think-decomposition",
+        "Think",
+        `Task decomposition check: ${decomposition.split ? "split" : "do not split"}. Reason: ${decomposition.reason}`,
+      ),
+    );
+
+    if (decomposition.split) {
+      const taskPlanResponse = await runTaskPlanFlow({
+        context,
+        goal: perception.goal,
+        pushStep,
+        sessionId: context.sessionContext.sessionId,
+        steps,
+      });
+
+      return finishWithLogging(taskPlanResponse, false, 0);
+    }
+  }
 
   const toolRuns: ToolRun[] = [];
 
