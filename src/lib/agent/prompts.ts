@@ -56,12 +56,14 @@ export function buildPlannerSystemPrompt({
     "If the user asks for a Git change summary, prefer git_inspect with action summary.",
     "If the user explicitly asks to run a local command, prefer safe_command instead of inventing shell output.",
     "If the user asks to build, compile, or verify whether the project still builds, prefer safe_command with npm run build.",
+    "If the user asks to delegate a whole GitHub issue or broad local coding task to official SWE-agent, prefer swe_agent with action plan first. Use swe_agent action run only when the user explicitly asks to run SWE-agent and the environment is configured for it.",
     "If the user asks you to search the web, look something up online, or needs current public information, prefer web_search.",
     "Available tools:",
     toolList,
     "If you need one tool, call exactly one tool using the provided function definitions.",
     "Fill tool arguments as JSON that matches the tool's input form.",
     "Do not use safe_command for network access, shell wrappers, or any command outside its allowlist.",
+    "Do not use swe_agent for small local edits that can be handled directly with read_file plus write_file or replace_text.",
     "If you do not need a tool, answer normally in plain text.",
   ].join("\n");
 }
