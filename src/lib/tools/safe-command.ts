@@ -32,7 +32,18 @@ const BLOCKED_COMMANDS = new Set([
   "wget",
 ]);
 
-type SafeExecutable = "git" | "npm" | "rg";
+type PackageManager = "npm" | "pnpm" | "yarn";
+type PackageScript = "build" | "lint" | "test";
+type SafeExecutable =
+  | "cargo"
+  | "git"
+  | "make"
+  | "npm"
+  | "pnpm"
+  | "pytest"
+  | "rg"
+  | "ruff"
+  | "yarn";
 
 type SafeCommandPlan =
   | {
@@ -46,7 +57,19 @@ type SafeCommandPlan =
       message: string;
     };
 
-const ALLOWED_COMMANDS = new Set<SafeExecutable>(["git", "npm", "rg"]);
+const ALLOWED_COMMANDS = new Set<SafeExecutable>([
+  "cargo",
+  "git",
+  "make",
+  "npm",
+  "pnpm",
+  "pytest",
+  "rg",
+  "ruff",
+  "yarn",
+]);
+const PACKAGE_SCRIPTS = new Set<PackageScript>(["build", "lint", "test"]);
+const PACKAGE_MANAGERS = new Set<PackageManager>(["npm", "pnpm", "yarn"]);
 
 type SafeCommandStatus = "success" | "failed" | "rejected";
 
@@ -63,10 +86,13 @@ function resolveRuntimeCommand(
   executable: SafeExecutable,
   executableArgs: string[],
 ) {
-  if (process.platform === "win32" && executable === "npm") {
+  if (
+    process.platform === "win32" &&
+    (executable === "npm" || executable === "pnpm" || executable === "yarn")
+  ) {
     return {
       executable: "cmd.exe",
-      executableArgs: ["/d", "/c", "npm.cmd", ...executableArgs],
+      executableArgs: ["/d", "/c", `${executable}.cmd`, ...executableArgs],
     };
   }
 
@@ -263,7 +289,27 @@ function buildAllowedGitCall(args: string[]): SafeCommandPlan {
   };
 }
 
-function workspaceHasNpmScript(scriptName: string) {
+function workspaceHasFile(fileName: string) {
+  return existsSync(path.join(getWorkspaceRoot(), fileName));
+}
+
+function detectPackageManager(): PackageManager | null {
+  if (workspaceHasFile("pnpm-lock.yaml")) {
+    return "pnpm";
+  }
+
+  if (workspaceHasFile("yarn.lock")) {
+    return "yarn";
+  }
+
+  if (workspaceHasFile("package-lock.json") || workspaceHasFile("package.json")) {
+    return "npm";
+  }
+
+  return null;
+}
+
+function workspaceHasPackageScript(scriptName: string) {
   const packageJsonPath = path.join(getWorkspaceRoot(), "package.json");
 
   if (!existsSync(packageJsonPath)) {
@@ -281,54 +327,160 @@ function workspaceHasNpmScript(scriptName: string) {
   }
 }
 
-function buildAllowedNpmCall(args: string[]): SafeCommandPlan {
-  if (args.length === 2 && args[0] === "run" && args[1] === "build") {
+function isPackageManager(command: SafeExecutable): command is PackageManager {
+  return PACKAGE_MANAGERS.has(command as PackageManager);
+}
+
+function getPackageScriptFromArgs(command: PackageManager, args: string[]) {
+  if (args.length === 2 && args[0] === "run") {
+    return PACKAGE_SCRIPTS.has(args[1] as PackageScript)
+      ? (args[1] as PackageScript)
+      : null;
+  }
+
+  if (command === "npm" && args.length === 1 && args[0] === "test") {
+    return "test";
+  }
+
+  if (command !== "npm" && args.length === 1) {
+    return PACKAGE_SCRIPTS.has(args[0] as PackageScript)
+      ? (args[0] as PackageScript)
+      : null;
+  }
+
+  return null;
+}
+
+function buildAllowedPackageManagerCall(
+  command: PackageManager,
+  args: string[],
+): SafeCommandPlan {
+  const packageManager = detectPackageManager();
+  const scriptName = getPackageScriptFromArgs(command, args);
+
+  if (!packageManager) {
     return {
-      ok: true,
-      commandText: "npm run build",
-      executable: "npm",
-      executableArgs: ["run", "build"],
+      ok: false,
+      message:
+        "safe_command did not find package.json or a JavaScript lockfile in this workspace, so package manager commands are not allowed.",
     };
   }
 
-  if (args.length === 2 && args[0] === "run" && args[1] === "lint") {
-    if (!workspaceHasNpmScript("lint")) {
-      return {
-        ok: false,
-        message:
-          'safe_command checked package.json and did not find a "lint" script, so npm run lint is not allowed in this workspace.',
-      };
-    }
-
+  if (command !== packageManager) {
     return {
-      ok: true,
-      commandText: "npm run lint",
-      executable: "npm",
-      executableArgs: ["run", "lint"],
+      ok: false,
+      message: `safe_command detected ${packageManager} for this workspace, so ${command} commands are not allowed here.`,
     };
   }
 
-  if (args.length === 1 && args[0] === "test") {
-    if (!workspaceHasNpmScript("test")) {
-      return {
-        ok: false,
-        message:
-          'safe_command checked package.json and did not find a "test" script, so npm test is not allowed in this workspace.',
-      };
-    }
+  if (!scriptName) {
+    return {
+      ok: false,
+      message:
+        "safe_command allows only build, test, or lint package scripts for the detected package manager.",
+    };
+  }
 
+  if (!workspaceHasPackageScript(scriptName)) {
+    return {
+      ok: false,
+      message: `safe_command checked package.json and did not find a "${scriptName}" script, so ${command} ${args.join(" ")} is not allowed in this workspace.`,
+    };
+  }
+
+  return {
+    ok: true,
+    commandText: `${command} ${args.join(" ")}`,
+    executable: command,
+    executableArgs: args,
+  };
+}
+
+function buildAllowedCargoCall(args: string[]): SafeCommandPlan {
+  if (!workspaceHasFile("Cargo.toml")) {
+    return {
+      ok: false,
+      message:
+        "safe_command did not find Cargo.toml in this workspace, so cargo commands are not allowed.",
+    };
+  }
+
+  if (args.length === 1 && ["build", "test", "clippy"].includes(args[0])) {
     return {
       ok: true,
-      commandText: "npm test",
-      executable: "npm",
-      executableArgs: ["test"],
+      commandText: `cargo ${args[0]}`,
+      executable: "cargo",
+      executableArgs: args,
     };
   }
 
   return {
     ok: false,
-    message:
-      'safe_command currently allows only npm run build, npm run lint when package.json includes a lint script, or npm test when package.json includes a test script.',
+    message: "safe_command allows only cargo build, cargo test, or cargo clippy.",
+  };
+}
+
+function buildAllowedPythonToolCall(
+  command: "pytest" | "ruff",
+  args: string[],
+): SafeCommandPlan {
+  if (!workspaceHasFile("pyproject.toml") && !workspaceHasFile("setup.py")) {
+    return {
+      ok: false,
+      message:
+        "safe_command did not find pyproject.toml or setup.py in this workspace, so Python tool commands are not allowed.",
+    };
+  }
+
+  if (command === "pytest" && args.length === 0) {
+    return {
+      ok: true,
+      commandText: "pytest",
+      executable: "pytest",
+      executableArgs: [],
+    };
+  }
+
+  if (
+    command === "ruff" &&
+    args.length === 1 &&
+    (args[0] === "check" || args[0] === "format")
+  ) {
+    return {
+      ok: true,
+      commandText: `ruff ${args[0]}`,
+      executable: "ruff",
+      executableArgs: args,
+    };
+  }
+
+  return {
+    ok: false,
+    message: "safe_command allows only pytest, ruff check, or ruff format.",
+  };
+}
+
+function buildAllowedMakeCall(args: string[]): SafeCommandPlan {
+  if (!workspaceHasFile("Makefile")) {
+    return {
+      ok: false,
+      message:
+        "safe_command did not find Makefile in this workspace, so make commands are not allowed.",
+    };
+  }
+
+  if (args.length === 1 && ["build", "test", "lint"].includes(args[0])) {
+    return {
+      ok: true,
+      commandText: `make ${args[0]}`,
+      executable: "make",
+      executableArgs: args,
+    };
+  }
+
+  return {
+    ok: false,
+    message: "safe_command allows only make build, make test, or make lint.",
   };
 }
 
@@ -344,7 +496,19 @@ function buildAllowedCommandCall(
     return buildAllowedGitCall(args);
   }
 
-  return buildAllowedNpmCall(args);
+  if (isPackageManager(command)) {
+    return buildAllowedPackageManagerCall(command, args);
+  }
+
+  if (command === "cargo") {
+    return buildAllowedCargoCall(args);
+  }
+
+  if (command === "pytest" || command === "ruff") {
+    return buildAllowedPythonToolCall(command, args);
+  }
+
+  return buildAllowedMakeCall(args);
 }
 
 function parseSafeCommandInput(input: ToolExecutionInput) {
@@ -367,11 +531,9 @@ function isVerificationSafeCommandInput(input: ToolExecutionInput) {
     return true;
   }
 
-  return (
-    command === "npm" &&
-    ((args.length === 2 && args[0] === "run" && args[1] === "build") ||
-      (args.length === 1 && args[0] === "test"))
-  );
+  return PACKAGE_MANAGERS.has(command as PackageManager)
+    ? getPackageScriptFromArgs(command as PackageManager, args) !== null
+    : false;
 }
 
 async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult> {
@@ -503,14 +665,14 @@ async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult
 export const safeCommandTool: AgentTool = {
   name: "safe_command",
   description:
-    "Run one whitelisted local command inside the current workspace. MVP allowlist: rg search, rg --files, git status, npm run build, npm run lint only when package.json includes a lint script, and npm test only when package.json includes a test script.",
+    "Run one whitelisted local command inside the current workspace. Allowlist: rg search, rg --files, git status, detected npm/pnpm/yarn build/test/lint scripts, cargo build/test/clippy, pytest, ruff check/format, and make build/test/lint.",
   inputSchema: {
     type: "object",
     properties: {
       command: {
         type: "string",
         description:
-          'Required allowed command name. Current MVP allowlist: "rg", "git", or "npm".',
+          'Required allowed command name. Allowlist: "rg", "git", "npm", "pnpm", "yarn", "cargo", "pytest", "ruff", or "make".',
       },
       args: {
         type: "array",
