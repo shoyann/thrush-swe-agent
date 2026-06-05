@@ -15,6 +15,7 @@ export type ProjectSummary = {
 };
 
 export type SessionSummary = {
+  auto_approve: number;
   createdAt: number;
   id: string;
   projectId: string;

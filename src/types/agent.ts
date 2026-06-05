@@ -23,6 +23,7 @@ export type PendingWorkspaceSwitch = {
 };
 
 export type AgentSessionContext = {
+  autoApprove?: boolean;
   conversationSummary?: string | null;
   lastListedDirectoryPath?: string | null;
   lastReadFilePath?: string | null;

@@ -27,6 +27,7 @@ type ProjectRow = {
 };
 
 type SessionRow = {
+  auto_approve: number;
   context_json: string;
   created_at: number;
   id: string;
@@ -71,6 +72,7 @@ function parseJson<T>(raw: string, fallback: T): T {
 
 function mapSessionSummary(row: SessionRow): SessionSummary {
   return {
+    auto_approve: row.auto_approve,
     createdAt: row.created_at,
     id: row.id,
     projectId: row.project_id,
@@ -94,7 +96,7 @@ function mapProjectSummary(row: ProjectRow, sessions: SessionSummary[]): Project
 function listSessionRowsForProject(projectId: string) {
   return getDb()
     .prepare(
-      `SELECT id, project_id, title, context_json, steps_json, created_at, updated_at
+      `SELECT id, project_id, title, auto_approve, context_json, steps_json, created_at, updated_at
        FROM sessions
        WHERE project_id = ?
        ORDER BY updated_at DESC`,
@@ -128,7 +130,11 @@ export function createProject(input: {
   return getProject(projectId);
 }
 
-export function createSession(projectId: string, title = "New session") {
+export function createSession(
+  projectId: string,
+  title = "New session",
+  options: { autoApprove?: boolean } = {},
+) {
   const db = getDb();
   const project = getProject(projectId);
 
@@ -139,18 +145,20 @@ export function createSession(projectId: string, title = "New session") {
   const timestamp = now();
   const sessionId = createId("sess");
   const context: AgentSessionContext = {
+    autoApprove: options.autoApprove === true,
     projectId,
     sessionId,
   };
 
   db.prepare(
     `INSERT INTO sessions
-      (id, project_id, title, context_json, steps_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (id, project_id, title, auto_approve, context_json, steps_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     sessionId,
     projectId,
     title,
+    options.autoApprove === true ? 1 : 0,
     JSON.stringify(context),
     JSON.stringify(starterSteps),
     timestamp,
@@ -202,7 +210,7 @@ export function updateSessionState(
   getDb()
     .prepare(
       `UPDATE sessions
-       SET context_json = ?, steps_json = ?, updated_at = ?
+       SET context_json = ?, steps_json = ?, auto_approve = ?, updated_at = ?
        WHERE id = ?`,
     )
     .run(
@@ -211,6 +219,7 @@ export function updateSessionState(
         sessionId,
       }),
       JSON.stringify(steps),
+      sessionContext.autoApprove === true ? 1 : 0,
       timestamp,
       sessionId,
     );
@@ -241,7 +250,7 @@ export function getProject(projectId: string) {
 export function getSession(sessionId: string): SessionDetail | null {
   const row = getDb()
     .prepare(
-      `SELECT id, project_id, title, context_json, steps_json, created_at, updated_at
+      `SELECT id, project_id, title, auto_approve, context_json, steps_json, created_at, updated_at
        FROM sessions
        WHERE id = ?`,
     )
@@ -274,6 +283,7 @@ export function getSession(sessionId: string): SessionDetail | null {
     })),
     sessionContext: {
       ...sessionContext,
+      autoApprove: row.auto_approve === 1,
       projectId: row.project_id,
       sessionId: row.id,
     },

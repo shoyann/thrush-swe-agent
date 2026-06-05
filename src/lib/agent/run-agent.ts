@@ -29,6 +29,7 @@ import {
 } from "@/lib/agent/tool-run-types";
 import { buildNextSessionContext } from "@/lib/agent/session-state";
 import {
+  handleAutoWriteApproval,
   handleWriteApproval,
   isAmbiguousDraftConfirmation,
   parseDraftLifecycleAction,
@@ -110,6 +111,7 @@ export async function runAgent(
   const normalizedSessionContext = normalizeSessionContext(sessionContext);
   const effectiveSessionContext: AgentSessionContext = {
     ...normalizedSessionContext,
+    autoApprove: normalizedSessionContext.autoApprove === true,
     pendingDraft: normalizedSessionContext.pendingDraft ?? null,
     projectId: options.projectId ?? normalizedSessionContext.projectId ?? null,
     readOnly: normalizedSessionContext.readOnly === true,
@@ -148,6 +150,17 @@ export async function runAgent(
       true,
       0,
     );
+  }
+
+  if (!draftLifecycleAction) {
+    const autoApprovalResult = await handleAutoWriteApproval(
+      effectiveSessionContext,
+      effectiveSessionContext.pendingDraft ?? null,
+    );
+
+    if (autoApprovalResult) {
+      return finishWithLogging(autoApprovalResult, true, 0);
+    }
   }
 
   if (draftLifecycleAction && !effectiveSessionContext.pendingDraft) {
@@ -491,6 +504,19 @@ export async function runAgent(
       toolRuns,
     );
     if (immediateOutcome?.type === "immediate") {
+      const nextSessionContext = buildNextSessionContext(
+        context.sessionContext,
+        toolRuns,
+      );
+      const autoApprovalResult = await handleAutoWriteApproval(
+        nextSessionContext,
+        toolRun.result.draft ?? null,
+      );
+
+      if (autoApprovalResult) {
+        return finishWithLogging(autoApprovalResult, true, toolRuns.length);
+      }
+
       await replaceLastStep(
         createStep(
           `act-${roundNumber}`,
@@ -502,7 +528,7 @@ export async function runAgent(
       return finishWithLogging(
         {
           message: createMessage(immediateOutcome.message),
-          sessionContext: buildNextSessionContext(context.sessionContext, toolRuns),
+          sessionContext: nextSessionContext,
           steps,
         },
         false,

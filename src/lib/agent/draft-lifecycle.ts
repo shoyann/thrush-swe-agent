@@ -1,4 +1,4 @@
-import type { AgentResponse } from "@/types/agent";
+import type { AgentResponse, AgentSessionContext } from "@/types/agent";
 import type { WriteFileDraft } from "@/lib/tools/types";
 import { applyPendingWriteDraft } from "@/lib/tools/pending-write";
 import {
@@ -84,6 +84,36 @@ export function isAmbiguousDraftConfirmation(task: string) {
     /^(ok|okay|yes|yep|go ahead|looks good|approved?)$/.test(trimmedTask) ||
     /^(通过|好|行|可以|确认|没问题)$/.test(task.trim())
   );
+}
+
+export async function handleAutoWriteApproval(
+  sessionContext: AgentSessionContext,
+  pendingDraft: WriteFileDraft | null,
+): Promise<AgentResponse | null> {
+  if (
+    sessionContext.autoApprove !== true ||
+    sessionContext.readOnly === true ||
+    !pendingDraft
+  ) {
+    return null;
+  }
+
+  const approvalResult = await handleWriteApproval(
+    `${APPROVE_WRITE_COMMAND} ${pendingDraft.id}`,
+    pendingDraft,
+  );
+
+  if (!approvalResult) {
+    throw new Error("Expected an automatic pending draft approval result.");
+  }
+
+  return {
+    ...approvalResult,
+    sessionContext: {
+      ...sessionContext,
+      ...approvalResult.sessionContext,
+    },
+  };
 }
 
 export async function handleWriteApproval(

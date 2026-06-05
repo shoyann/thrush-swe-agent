@@ -41,6 +41,7 @@ export function normalizeSessionContext(
   }
 
   return {
+    autoApprove: sessionContext.autoApprove === true,
     conversationSummary: sessionContext.conversationSummary?.trim() || null,
     lastListedDirectoryPath: sessionContext.lastListedDirectoryPath?.trim() || null,
     lastReadFilePath: sessionContext.lastReadFilePath?.trim() || null,
