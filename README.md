@@ -15,12 +15,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=nextdotjs&logoColor=white" />
+  <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" />
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
-  <img src="https://img.shields.io/badge/SQLite-local-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
-  <img src="https://img.shields.io/badge/DeepSeek-default-4D6BFF?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Playwright-browser-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" />
-  <img src="https://img.shields.io/badge/SSE-streaming-FF6B35?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/SQLite-local_state-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  <img src="https://img.shields.io/badge/Playwright-browser_tools-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" />
 </p>
 
 <p align="center">
@@ -58,7 +56,7 @@ Think of it as a coding agent with a heavy safety switch: useful for getting rea
 | Safety boundary | Workspace path validation, SSRF checks, command allowlist, and write approval gate |
 | Observability | Every run gets a unique `req_xxxxxx` ID with structured JSON logs |
 | Auth | `POST /api/agent` is protected by a Bearer token |
-| Model client | DeepSeek by default, with provider-aware configuration for OpenAI-compatible clients |
+| Model client | Provider-aware configuration for OpenAI-compatible model clients |
 
 ## Quickstart
 
