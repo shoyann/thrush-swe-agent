@@ -5,29 +5,56 @@
 <h1 align="center">THRUSH</h1>
 
 <p align="center">
-  A self-hosted SWE agent workbench that thinks before it acts<br>
-  plans tasks, calls tools to inspect your codebase,<br>
-  and requires explicit approval before writing a single line.
+  <strong>A semi-automatic SWE agent workbench.</strong><br>
+  Thrush reads your codebase, reasons through the task, chambers edits as drafts,<br>
+  and waits for your explicit approval before anything hits disk.
 </p>
 
 <p align="center">
-  <code>Next.js 15</code> | <code>TypeScript</code> | <code>SQLite</code> | <code>DeepSeek</code> | <code>Playwright</code> | <code>SSE</code>
+  <em>Fast enough to help. Slow enough not to shoot your project in the foot.</em>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=nextdotjs&logoColor=white" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/SQLite-local-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
+  <img src="https://img.shields.io/badge/DeepSeek-default-4D6BFF?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Playwright-browser-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" />
+  <img src="https://img.shields.io/badge/SSE-streaming-FF6B35?style=for-the-badge" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Human--in--the--loop-approval_required-8A2BE2?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Writes-draft_first-FFB000?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Self--hosted-local_workbench-222222?style=for-the-badge" />
 </p>
 
 ---
+
+## What is Thrush?
+
+Thrush is not a full-auto coding agent.
+
+It is a local, self-hosted, semi-automatic SWE agent workbench for real projects. It can inspect files, search code, read pages, reason through issues, run allowlisted commands, and prepare file edits.
+
+But it does not write blindly.
+
+Every file modification is staged as a draft first, shown to the user, and only written after explicit approval.
+
+Think of it as a coding agent with a heavy safety switch: useful for getting real work done, but designed so the human still owns the trigger.
 
 ## What it does
 
 | Capability | Detail |
 |---|---|
 | Agent loop | Lean `Perceive -> Think -> Act` loop streamed to the UI in real time |
-| Tool calling | Files, tree listing, search, web, Git, GitHub issues, and shell allowlist |
+| Tool calling | Files, tree listing, text search, web search, Git, GitHub issues, browser actions, and shell allowlist |
 | Agent architecture | Tool result hooks, think strategies, and direct tool plan rules keep the main loop small |
-| Draft approval | File edits are prepared as drafts and only written after explicit user approval |
-| Project workspace | Each project points at a local workspace folder; tools are sandboxed to that folder |
-| Session state | Projects, sessions, messages, tool runs, and checkpoints are stored locally in SQLite |
+| Draft approval | File edits are chambered as drafts and only written after explicit user approval |
+| Project workspace | Each project points at a local workspace folder; file tools are path-scoped to that folder |
+| Session state | Projects, sessions, messages, tool runs, checkpoints, and pending drafts are stored locally in SQLite |
 | Workspace switching | A session can switch to another local workspace after confirmation, with optional read-only mode |
-| Browser tools | Playwright-powered page reading and clicking |
+| Browser tools | Playwright-powered page reading and simple clicking |
 | Safety boundary | Workspace path validation, SSRF checks, command allowlist, and write approval gate |
 | Observability | Every run gets a unique `req_xxxxxx` ID with structured JSON logs |
 | Auth | `POST /api/agent` is protected by a Bearer token |
@@ -67,11 +94,19 @@ NEXT_PUBLIC_AGENT_API_SECRET=replace-with-the-same-local-secret
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open:
+
+```text
+http://localhost:3000
+```
 
 ## Point at a real project
 
-By default, Thrush only sees `data/workspace`.
+By default, Thrush only sees:
+
+```text
+data/workspace
+```
 
 To let it inspect a real local project, set `AGENT_WORKSPACE_ROOT` in `.env.local`:
 
@@ -85,9 +120,17 @@ On macOS or Linux:
 AGENT_WORKSPACE_ROOT=/path/to/your/project
 ```
 
-Then restart `npm run dev`.
+Then restart:
 
-You can also create projects from the UI. Each project stores its own workspace path, sessions, messages, tool runs, and checkpoints in the local SQLite database at `data/thrush.db`.
+```bash
+npm run dev
+```
+
+You can also create projects from the UI. Each project stores its own workspace path, sessions, messages, tool runs, and checkpoints in the local SQLite database at:
+
+```text
+data/thrush.db
+```
 
 ## Environment variables
 
@@ -117,8 +160,8 @@ You can also create projects from the UI. Each project stores its own workspace 
 
 | Tool | Purpose |
 |---|---|
-| `list_files` | Lists one folder inside the workspace |
-| `tree_files` | Returns a shallow tree summary of files and folders |
+| `list_files` | Lists one folder inside the active workspace |
+| `tree_files` | Returns a shallow, capped tree summary of files and folders |
 | `read_file` | Reads a file, with optional line windows |
 | `search_text` | Searches workspace text with ripgrep |
 | `write_file` | Prepares a full-file write draft; does not write immediately |
@@ -146,14 +189,31 @@ The user must explicitly approve the draft before Thrush writes to disk.
 
 Short replies like `approve`, `cancel`, `批准`, or `取消` are also supported when there is exactly one pending draft in the current session.
 
-## Security notes
+This is the core idea of Thrush:
+
+```text
+Inspect -> Think -> Draft -> Ask -> Write
+```
+
+Not:
+
+```text
+Inspect -> Think -> Fire wildly into your repo
+```
+
+## Safety notes
 
 - Do not commit `.env.local`; it is ignored by Git.
-- Do not put real production secrets in `NEXT_PUBLIC_AGENT_API_SECRET`. Any `NEXT_PUBLIC_*` value is shipped to the browser, so users can inspect it.
-- The current browser UI auth is suitable for local development only. For production, put the UI behind real user authentication and keep the server token server-only.
-- `AGENT_WORKSPACE_ROOT` and project workspace paths are the main file boundaries. File tools reject paths outside the active workspace.
+- Do not put real production secrets in `NEXT_PUBLIC_AGENT_API_SECRET`.
+- Any `NEXT_PUBLIC_*` value is shipped to the browser, so users can inspect it.
+- The current browser UI auth is suitable for local development only.
+- For production, put the UI behind real user authentication and keep the server token server-only.
+- `AGENT_WORKSPACE_ROOT` and project workspace paths are the main file boundaries.
+- File tools reject paths outside the active workspace.
 - URL tools block localhost, loopback, and private network ranges to reduce SSRF risk.
-- `safe_command` is an allowlist, not a full sandbox. Build and test commands can still execute project code.
+- `safe_command` is an allowlist, not a full sandbox.
+- Build and test commands can still execute project code.
+- Command execution is not isolated in Docker, a VM, or a hardened sandbox.
 - Do not run Thrush against untrusted repositories unless you understand the local execution risk.
 
 ## Local state
@@ -177,7 +237,9 @@ Pending drafts are persisted in session context after the agent run finishes. A 
 
 ## Known gaps
 
-- Test coverage is still narrow. The current `test` script focuses on `safe_command`; agent loop, API routes, file tools, browser tools, workspace switching, and GitHub issue flows still need dedicated tests.
+- Test coverage is still narrow.
+- The current `test` script focuses on `safe_command`.
+- Agent loop, API routes, file tools, browser tools, workspace switching, and GitHub issue flows still need dedicated tests.
 - The main loop is modular, but `onResult`, think strategies, direct plan rules, model provider paths, and draft lifecycle flows need broader coverage.
 - `tree_files` exists, but it is intentionally shallow and capped; large repository exploration still needs better summaries.
 - The UI auth model is local-dev oriented. Production deployments need real user authentication and server-only secrets.
@@ -187,4 +249,4 @@ Pending drafts are persisted in session context after the agent run finishes. A 
 
 ## Status
 
-> Thrush is a local, self-hosted SWE agent workbench that plans, inspects, and edits code with human approval.
+> Thrush is a semi-automatic SWE agent workbench: it drafts before it writes.
