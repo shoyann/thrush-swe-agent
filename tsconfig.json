@@ -36,6 +36,9 @@
     ".next-dev/types/**/*.ts"
   ],
   "exclude": [
+    ".test-dist",
+    "data/auto-runs",
+    "data/mini-venv",
     "node_modules"
   ]
 }

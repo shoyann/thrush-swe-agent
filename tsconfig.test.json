@@ -10,6 +10,7 @@
     "types": ["node"]
   },
   "include": [
+    "src/lib/auto/recommended-environment.ts",
     "src/lib/tools/safe-command.ts",
     "src/lib/tools/types.ts",
     "src/lib/tools/workspace-path.ts",

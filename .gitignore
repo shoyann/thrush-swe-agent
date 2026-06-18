@@ -16,6 +16,10 @@ data/*.db-shm
 data/*.db-wal
 data/workspace/**
 !data/workspace/.gitkeep
+data/auto-runs/**
+data/mini-venv/**
+data/pip-cache/**
+data/uv-cache/**
 
 # logs
 npm-debug.log*
@@ -30,6 +34,7 @@ pnpm-debug.log*
 /.next-dev
 /test-results
 /.test-dist
+tsconfig.tsbuildinfo
 
 # system files
 .DS_Store

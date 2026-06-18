@@ -1,13 +1,14 @@
 {
   "name": "thrush-swe-agent",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
+    "bootstrap:mini": "node scripts/bootstrap-mini.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/safe-command.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test \".test-dist/test/**/*.js\""
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
