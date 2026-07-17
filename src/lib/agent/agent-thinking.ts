@@ -26,7 +26,7 @@ import {
   formatToolRunsForModel,
 } from "@/lib/agent/tool-args";
 import {
-  MAX_TOOL_CALLS,
+  getEffectiveMaxToolCalls,
   type ToolRun,
 } from "@/lib/agent/tool-run-types";
 import { formatSessionContextForModel } from "@/lib/agent/session-state";
@@ -85,8 +85,8 @@ type ThinkStrategy = {
   think: (context: ThinkStrategyContext) => Promise<ThoughtResult> | ThoughtResult;
 };
 
-function getRemainingToolCalls(toolRuns: ToolRun[]) {
-  return Math.max(MAX_TOOL_CALLS - toolRuns.length, 0);
+function getRemainingToolCalls(context: AgentContext, toolRuns: ToolRun[]) {
+  return Math.max(getEffectiveMaxToolCalls(context.sessionContext) - toolRuns.length, 0);
 }
 
 function buildThoughtPlan(toolRuns: ToolRun[], remainingToolCalls: number) {
@@ -274,7 +274,8 @@ export async function think(
   const readOnly = context.sessionContext.readOnly === true;
   const availableTools = listTools({ readOnly });
   const roundNumber = toolRuns.length + 1;
-  const remainingToolCalls = getRemainingToolCalls(toolRuns);
+  const maxToolCalls = getEffectiveMaxToolCalls(context.sessionContext);
+  const remainingToolCalls = getRemainingToolCalls(context, toolRuns);
   const plan = buildThoughtPlan(toolRuns, remainingToolCalls);
 
   const toolList = availableTools
@@ -311,6 +312,7 @@ export async function think(
         {
           role: "system",
           content: buildPlannerSystemPrompt({
+            maxToolCalls,
             readOnly,
             remainingToolCalls,
             toolList,
