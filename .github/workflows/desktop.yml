@@ -1,0 +1,49 @@
+name: Desktop Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/desktop-app]
+jobs:
+  linux-runtime:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.3
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npx tsc --noEmit && npm test && npm run test:desktop
+      - run: npm run build && npm run desktop:stage && npm run test:service
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-runtime
+          path: desktop-resources/linux.tar.gz
+  windows-installer:
+    needs: linux-runtime
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.3
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:desktop
+      - run: npm run build
+      - run: npm run desktop:stage
+      - run: npm run test:service
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-runtime
+          path: desktop-resources
+      - run: npm run desktop:package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Thrush-Windows
+          path: release/*.exe

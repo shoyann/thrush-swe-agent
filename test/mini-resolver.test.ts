@@ -1,3 +1,4 @@
+import childProcess from "node:child_process";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +31,7 @@ function createTempProject() {
 }
 
 function writeReadyRuntime(root: string) {
-  const pythonPath = path.join(root, "data", "mini-venv", "bin", "python");
+  const pythonPath = path.join(root, "data", "mini-venv", process.platform === "win32" ? "Scripts" : "bin", process.platform === "win32" ? "python.exe" : "python");
   const readyPath = path.join(root, "data", "mini-venv", ".ready.json");
   const requirementsText = "openai\nlitellm\n";
   const requirementsSha256 = createHash("sha256")
@@ -54,7 +55,10 @@ function writeReadyRuntime(root: string) {
   );
 }
 
-test("bundled runtime uses the prepared venv python and non-interactive wrapper", () => {
+test("bundled runtime uses the prepared venv python and non-interactive wrapper", (t) => {
+  // The POSIX fixture cannot execute on Windows. Probe execution is tested by
+  // the packaged-runtime smoke test with an actual managed Python installation.
+  if (process.platform === "win32") t.mock.method(childProcess, "execFileSync", () => Buffer.from(""));
   const root = createTempProject();
   writeReadyRuntime(root);
 
@@ -65,7 +69,7 @@ test("bundled runtime uses the prepared venv python and non-interactive wrapper"
 
       assert.equal(runtime.ready, true);
       assert.equal(command.source, "bundled");
-      assert.equal(command.command, path.join(root, "data", "mini-venv", "bin", "python"));
+      assert.equal(command.command, path.join(root, "data", "mini-venv", process.platform === "win32" ? "Scripts" : "bin", process.platform === "win32" ? "python.exe" : "python"));
       assert.deepEqual(command.argsPrefix, [path.join(root, "scripts", "mini-auto-run.py")]);
       assert.equal(command.argsPrefix.includes("--with"), false);
     });

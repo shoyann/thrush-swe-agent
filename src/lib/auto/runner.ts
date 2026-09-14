@@ -1,3 +1,4 @@
+import { runtimePaths } from "@/lib/runtime/paths";
 import { spawn, execFile } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -31,7 +32,7 @@ function shouldUseShellForCommand(command: string) {
 }
 
 function getRunRoot(autoRunId: string) {
-  return path.resolve(process.cwd(), "data", "auto-runs", autoRunId);
+  return path.join(runtimePaths().runs, autoRunId);
 }
 
 function getArtifactsRoot(autoRunId: string) {
@@ -98,7 +99,7 @@ async function prepareWorktree(run: AutoRun) {
 }
 
 function buildDockerRunArgs(worktreePath: string, networkPolicy: string | undefined) {
-  const args = ["--rm", "-v", `${worktreePath}:/workspace`];
+  const args = ["--rm", "--label", "io.thrush.managed=true", "-v", `${worktreePath}:/workspace`];
 
   if (networkPolicy === "none") {
     args.push("--network", "none");
@@ -157,7 +158,7 @@ function buildMiniArgs(run: AutoRun, worktreePath: string, trajectoryPath: strin
       "-c",
       `environment.image=${JSON.stringify(dockerImage)}`,
       "-c",
-      `environment.run_args=${JSON.stringify(buildDockerRunArgs(worktreePath, snapshot.networkPolicy))}`,
+      `environment.run_args=${JSON.stringify([...buildDockerRunArgs(worktreePath, snapshot.networkPolicy), "--name", "thrush-" + run.id.replace(/[^a-zA-Z0-9_.-]/g, "")])}`,
     );
   }
 
@@ -202,7 +203,10 @@ async function runMini(run: AutoRun, worktreePath: string, artifactsRoot: string
 
     runningProcesses.set(run.id, {
       kill() {
-        child.kill("SIGTERM");
+        if (process.platform === "win32" && child.pid) {
+          void execFileAsync("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true }).catch(() => {});
+        } else child.kill("SIGTERM");
+        void execFileAsync("docker", ["rm", "-f", "thrush-" + run.id.replace(/[^a-zA-Z0-9_.-]/g, "")], { windowsHide: true, timeout: 10000 }).catch(() => {});
       },
     });
 

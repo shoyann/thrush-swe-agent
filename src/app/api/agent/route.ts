@@ -15,6 +15,8 @@ import { createLogger } from "@/lib/logger";
 import { withWorkspaceRoot } from "@/lib/tools/workspace-path";
 import type { AgentRequest, AgentStreamEvent } from "@/types/agent";
 
+import { activity } from "@/lib/runtime/activity";
+
 const encoder = new TextEncoder();
 export const runtime = "nodejs";
 
@@ -47,7 +49,14 @@ export async function POST(request: Request) {
   const agentApiSecret = process.env.AGENT_API_SECRET?.trim();
   const authorization = request.headers.get("authorization");
 
-  if (!agentApiSecret) {
+  const origin = request.headers.get("origin");
+  const requestUrl = new URL(request.url);
+  const browserDevelopment = process.env.NODE_ENV === "development"
+    && process.env.THRUSH_DESKTOP !== "1"
+    && ["localhost", "127.0.0.1", "[::1]"].includes(requestUrl.hostname)
+    && origin === requestUrl.origin
+    && request.headers.get("sec-fetch-site") === "same-origin";
+  if (!agentApiSecret && !browserDevelopment) {
     console.warn(
       "AGENT_API_SECRET is not set. Rejecting /api/agent requests until server-side auth is configured.",
     );
@@ -55,7 +64,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  if (authorization !== `Bearer ${agentApiSecret}`) {
+  if (!browserDevelopment && authorization !== `Bearer ${agentApiSecret}`) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -76,7 +85,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const task = body.task?.trim();
+  if (activity.stopping) return NextResponse.json({ error: "Application is shutting down." }, { status: 503 });
+  const task = typeof body.task === "string" ? body.task.trim() : "";
   if (!task) {
     return NextResponse.json(
       { error: "Task is required." },
@@ -176,6 +186,7 @@ export async function POST(request: Request) {
     sessionId,
   });
 
+  activity.requests.add(requestId);
   if (body.stream) {
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -236,6 +247,7 @@ export async function POST(request: Request) {
             }),
           );
         } finally {
+          activity.requests.delete(requestId);
           controller.close();
         }
       },
@@ -294,5 +306,7 @@ export async function POST(request: Request) {
     logger.error("agent request failed", { error: message });
 
     return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    activity.requests.delete(requestId);
   }
 }

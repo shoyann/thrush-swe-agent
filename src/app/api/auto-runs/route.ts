@@ -8,6 +8,8 @@ import { getAutoReadiness } from "@/lib/auto/readiness";
 import { ensureAutoWorkerStarted } from "@/lib/auto/worker";
 import type { AutoRunCreateRequest } from "@/types/auto";
 
+import { activity } from "@/lib/runtime/activity";
+
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
@@ -30,6 +32,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  if (activity.stopping) return NextResponse.json({ error: "Application is shutting down." }, { status: 503 });
   let body: Partial<AutoRunCreateRequest>;
 
   try {

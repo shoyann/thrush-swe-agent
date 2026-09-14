@@ -1,6 +1,6 @@
 {
   "name": "thrush-swe-agent",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "bootstrap:mini": "node scripts/bootstrap-mini.mjs",
@@ -8,15 +8,28 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsc -p tsconfig.test.json && node --test \".test-dist/test/**/*.js\""
+    "test": "tsc -p tsconfig.test.json && node --test \".test-dist/test/**/*.js\"",
+    "desktop:dev": "electron .",
+    "desktop:stage": "node scripts/stage-desktop.mjs",
+    "desktop:package": "node node_modules/electron/install.js && electron-builder --config desktop/builder.json --win --x64",
+    "test:desktop": "node --test desktop/test/*.test.cjs",
+    "test:ui": "node scripts/test-ui.mjs",
+    "test:service": "node scripts/smoke-service.mjs",
+    "test:review": "node scripts/test-review.mjs",
+    "test:wsl": "node scripts/test-wsl.mjs",
+    "test:lifecycle": "node scripts/test-lifecycle.mjs",
+    "test:installed": "node scripts/test-installed.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
-    "next": "^15.3.0",
+    "lucide-react": "1.46.0",
+    "next": "15.5.25",
     "openai": "^6.39.0",
     "playwright": "^1.60.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
@@ -25,8 +38,18 @@
     "@types/node": "^22.15.30",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
     "eslint": "^9.27.0",
-    "eslint-config-next": "^15.3.0",
+    "eslint-config-next": "15.5.25",
     "typescript": "^5.8.3"
-  }
+  },
+  "main": "desktop/main.cjs",
+  "overrides": {
+    "postcss": "8.5.28",
+    "nanoid": "3.3.19",
+    "sharp": "0.35.4"
+  },
+  "description": "A local desktop workbench for software engineering agents",
+  "author": "Thrush contributors"
 }

@@ -330,7 +330,7 @@ export function listProjects() {
 export function ensureWorkbench(): WorkbenchSnapshot {
   let projects = listProjects();
 
-  if (projects.length === 0) {
+  if (projects.length === 0 && process.env.THRUSH_DESKTOP !== "1") {
     mkdirSync(getDefaultWorkspaceRoot(), { recursive: true });
     createProject({
       confirmWorkspace: true,

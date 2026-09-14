@@ -160,7 +160,7 @@ test("safe_command rejects commands outside the allowlist", async () => {
     args: ["-lc", "echo unsafe"],
   });
   const customRgFlag = buildAllowedCommandCall("rg", ["--hidden"]);
-  const unsupportedNpmScript = buildAllowedCommandCall("npm", ["run", "dev"]);
+  const unsupportedNpmScript = withWorkspaceRoot(createWorkspace({}), () => buildAllowedCommandCall("npm", ["run", "dev"]));
 
   assert.equal(blockedPowerShell.ok, false);
   assert.match(blockedPowerShell.content, /blocked for safety/);

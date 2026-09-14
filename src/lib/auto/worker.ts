@@ -5,11 +5,14 @@ import {
 } from "@/lib/db/auto-store";
 import { cancelRunningAutoRun, runAutoRun } from "@/lib/auto/runner";
 
+import { activity } from "@/lib/runtime/activity";
+
 let workerStarted = false;
 let workerBusy = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 async function tick() {
+  if (activity.stopping) return;
   if (workerBusy) {
     schedule();
     return;
@@ -45,7 +48,7 @@ function schedule() {
 }
 
 export function ensureAutoWorkerStarted() {
-  if (workerStarted) {
+  if (activity.stopping || workerStarted) {
     return;
   }
 

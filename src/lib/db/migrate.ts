@@ -1,3 +1,4 @@
+import { runtimePaths } from "../runtime/paths";
 import type Database from "better-sqlite3";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -5,7 +6,7 @@ import path from "node:path";
 const MIGRATIONS_TABLE = "_migrations";
 
 function getMigrationsDir() {
-  return path.resolve(process.cwd(), "src", "lib", "db", "migrations");
+  return runtimePaths().migrations;
 }
 
 function ensureMigrationsTable(database: Database.Database) {

@@ -46,3 +46,7 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+/desktop-resources
+/release
+/.desktop-cache

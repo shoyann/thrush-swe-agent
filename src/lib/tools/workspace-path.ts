@@ -1,8 +1,9 @@
+import { runtimePaths } from "../runtime/paths";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
-const DEFAULT_WORKSPACE_ROOT = path.resolve(process.cwd(), "data", "workspace");
+const DEFAULT_WORKSPACE_ROOT = runtimePaths().workspace;
 const workspaceRootStorage = new AsyncLocalStorage<string>();
 
 export function getDefaultWorkspaceRoot() {

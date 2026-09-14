@@ -1,3 +1,11 @@
+# Thrush Desktop
+
+Windows desktop workbench with native and WSL execution environments. Start with the [desktop installation and build guide](docs/desktop.md).
+
+The source browser workflow remains available for development. The original V2 architecture is documented below.
+
+---
+
 <p align="center">
   <img src="https://github.com/user-attachments/assets/bb389b24-24a8-4d2c-a9e2-aec316b43bf5" width="120" />
 </p>

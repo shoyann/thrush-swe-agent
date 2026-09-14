@@ -1,0 +1,59 @@
+{
+  "appId": "io.thrush.desktop",
+  "productName": "Thrush",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "desktop/main.cjs",
+    "desktop/preload.cjs",
+    "desktop/security.cjs",
+    "package.json",
+    "!node_modules/**/*"
+  ],
+  "asar": true,
+  "extraResources": [
+    {
+      "from": "desktop-resources/windows",
+      "to": "runtime/windows"
+    },
+    {
+      "from": "desktop-resources/windows/node_modules",
+      "to": "runtime/windows/node_modules"
+    },
+    {
+      "from": "desktop-resources/linux.tar.gz",
+      "to": "runtime/linux.tar.gz"
+    },
+    {
+      "from": "public/icon.png",
+      "to": "icon.png"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "public/icon.png",
+    "signExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "artifactName": "Thrush-${version}-windows-${arch}.${ext}",
+  "npmRebuild": false,
+  "electronDist": "node_modules/electron/dist",
+  "publish": null,
+  "toolsets": {
+    "nsis": "1.2.1"
+  },
+  "afterPack": "./desktop/verify-package.cjs"
+}
