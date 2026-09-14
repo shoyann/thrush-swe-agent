@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from minisweagent.agents import get_agent
@@ -47,7 +48,16 @@ def main() -> int:
     )
     config = recursive_merge(*configs)
 
-    model = get_model(config=config.get("model", {}))
+    model_config = config.setdefault("model", {})
+    # Read endpoint configuration in the host process. Never put credentials in
+    # CLI arguments or model_kwargs, which mini serializes into trajectories.
+    provider = os.environ.get("MODEL_PROVIDER", "deepseek").lower()
+    endpoint = os.environ.get(f"{provider.upper()}_BASE_URL")
+    if endpoint:
+        model_config.setdefault("model_kwargs", {})["api_base"] = endpoint
+    if provider == "deepseek":
+        model_config.setdefault("model_kwargs", {})["thinking"] = {"type": "disabled"}
+    model = get_model(config=model_config)
     env = get_environment(config.get("environment", {}), default_type="local")
     agent = get_agent(model, env, config.get("agent", {}), default_type="default")
     result = agent.run(config.get("run", {}).get("task", args.task))

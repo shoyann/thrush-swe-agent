@@ -3,7 +3,11 @@ import { spawn, execFile } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { AutoFailureCategory, AutoMiniExitStatus, AutoRun } from "@/types/auto";
+import type {
+  AutoFailureCategory,
+  AutoMiniExitStatus,
+  AutoRun,
+} from "@/types/auto";
 import {
   appendAutoEvent,
   createAutoArtifact,
@@ -82,7 +86,10 @@ async function prepareWorktree(run: AutoRun) {
   mkdirSync(path.dirname(worktreePath), { recursive: true });
   rmSync(worktreePath, { force: true, recursive: true });
   await execGit(["worktree", "prune"], run.workspacePath);
-  await execGit(["worktree", "add", "-B", branchName, worktreePath, "HEAD"], run.workspacePath);
+  await execGit(
+    ["worktree", "add", "-B", branchName, worktreePath, "HEAD"],
+    run.workspacePath,
+  );
 
   updateAutoRunPaths({
     autoRunId: run.id,
@@ -98,8 +105,17 @@ async function prepareWorktree(run: AutoRun) {
   };
 }
 
-function buildDockerRunArgs(worktreePath: string, networkPolicy: string | undefined) {
-  const args = ["--rm", "--label", "io.thrush.managed=true", "-v", `${worktreePath}:/workspace`];
+function buildDockerRunArgs(
+  worktreePath: string,
+  networkPolicy: string | undefined,
+) {
+  const args = [
+    "--rm",
+    "--label",
+    "io.thrush.managed=true",
+    "-v",
+    `${worktreePath}:/workspace`,
+  ];
 
   if (networkPolicy === "none") {
     args.push("--network", "none");
@@ -108,7 +124,11 @@ function buildDockerRunArgs(worktreePath: string, networkPolicy: string | undefi
   return args;
 }
 
-function buildMiniArgs(run: AutoRun, worktreePath: string, trajectoryPath: string) {
+function buildMiniArgs(
+  run: AutoRun,
+  worktreePath: string,
+  trajectoryPath: string,
+) {
   if (!process.env.AUTO_RUN_MINI_COMMAND?.trim()) {
     const runtime = getMiniRuntimeStatus();
 
@@ -170,7 +190,11 @@ function buildMiniArgs(run: AutoRun, worktreePath: string, trajectoryPath: strin
   };
 }
 
-async function runMini(run: AutoRun, worktreePath: string, artifactsRoot: string) {
+async function runMini(
+  run: AutoRun,
+  worktreePath: string,
+  artifactsRoot: string,
+) {
   const logPath = path.join(artifactsRoot, "mini.log");
   const trajectoryPath = path.join(artifactsRoot, "trajectory.json");
   const miniCommand = buildMiniArgs(run, worktreePath, trajectoryPath);
@@ -201,14 +225,31 @@ async function runMini(run: AutoRun, worktreePath: string, artifactsRoot: string
       windowsHide: true,
     });
 
-    runningProcesses.set(run.id, {
-      kill() {
-        if (process.platform === "win32" && child.pid) {
-          void execFileAsync("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true }).catch(() => {});
-        } else child.kill("SIGTERM");
-        void execFileAsync("docker", ["rm", "-f", "thrush-" + run.id.replace(/[^a-zA-Z0-9_.-]/g, "")], { windowsHide: true, timeout: 10000 }).catch(() => {});
+    const terminate = () => {
+      if (process.platform === "win32" && child.pid) {
+        void execFileAsync(
+          "taskkill.exe",
+          ["/pid", String(child.pid), "/t", "/f"],
+          { windowsHide: true },
+        ).catch(() => {});
+      } else child.kill("SIGTERM");
+      void execFileAsync(
+        "docker",
+        ["rm", "-f", "thrush-" + run.id.replace(/[^a-zA-Z0-9_.-]/g, "")],
+        { windowsHide: true, timeout: 10000 },
+      ).catch(() => {});
+    };
+    runningProcesses.set(run.id, { kill: terminate });
+    let timedOut = false;
+    const limit = run.presetSnapshot.wallTimeLimitSeconds ?? 3600;
+    const deadline = setTimeout(
+      () => {
+        timedOut = true;
+        logText += "\nThrush: Auto wall time limit reached.\n";
+        terminate();
       },
-    });
+      (Number.isFinite(limit) && limit > 0 ? limit : 3600) * 1000,
+    );
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
@@ -223,6 +264,7 @@ async function runMini(run: AutoRun, worktreePath: string, artifactsRoot: string
     });
 
     child.on("error", (error) => {
+      clearTimeout(deadline);
       runningProcesses.delete(run.id);
       reject(
         Object.assign(
@@ -234,13 +276,25 @@ async function runMini(run: AutoRun, worktreePath: string, artifactsRoot: string
       );
     });
 
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
+      clearTimeout(deadline);
       runningProcesses.delete(run.id);
+      // Also clean up after success, failure and timeout; Python may exit
+      // before its own environment cleanup runs.
+      if ((run.presetSnapshot.environment ?? "docker") === "docker") {
+        await execFileAsync(
+          "docker",
+          ["rm", "-f", "thrush-" + run.id.replace(/[^a-zA-Z0-9_.-]/g, "")],
+          { windowsHide: true, timeout: 10000 },
+        ).catch(() => {});
+      }
       writeFileSync(logPath, logText);
       resolve({
-        exitCode: code ?? -1,
+        exitCode: timedOut ? 124 : (code ?? -1),
         logText,
-        miniExitStatus: parseMiniExitStatus(trajectoryPath),
+        miniExitStatus: timedOut
+          ? "TimeExceeded"
+          : parseMiniExitStatus(trajectoryPath),
       });
     });
   });
@@ -286,7 +340,8 @@ async function createArtifacts(input: {
   });
   const diffArtifactId = createAutoArtifact({
     autoRunId: input.autoRunId,
-    contentText: input.diff.length <= MAX_INLINE_ARTIFACT_LENGTH ? input.diff : null,
+    contentText:
+      input.diff.length <= MAX_INLINE_ARTIFACT_LENGTH ? input.diff : null,
     filePath: diffPath,
     label: "Diff",
     type: "diff",
@@ -308,7 +363,8 @@ async function createArtifacts(input: {
   });
   createAutoArtifact({
     autoRunId: input.autoRunId,
-    contentText: input.logText.length <= MAX_INLINE_ARTIFACT_LENGTH ? input.logText : null,
+    contentText:
+      input.logText.length <= MAX_INLINE_ARTIFACT_LENGTH ? input.logText : null,
     filePath: logPath,
     label: "mini-swe-agent Logs",
     type: "logs",
@@ -329,11 +385,15 @@ async function createArtifacts(input: {
 
 function getErrorCategory(error: unknown): AutoFailureCategory {
   const category = (error as { category?: unknown })?.category;
-  return typeof category === "string" ? (category as AutoFailureCategory) : "unknown";
+  return typeof category === "string"
+    ? (category as AutoFailureCategory)
+    : "unknown";
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "The Auto Run failed for an unknown reason.";
+  return error instanceof Error
+    ? error.message
+    : "The Auto Run failed for an unknown reason.";
 }
 
 export function cancelRunningAutoRun(autoRunId: string) {
@@ -360,9 +420,12 @@ export async function runAutoRun(autoRunId: string) {
 
     const current = getAutoRun(run.id);
     if (current?.cancelRequested) {
-      throw Object.assign(new Error("The Auto Run was canceled before mini-swe-agent started."), {
-        category: "canceled" satisfies AutoFailureCategory,
-      });
+      throw Object.assign(
+        new Error("The Auto Run was canceled before mini-swe-agent started."),
+        {
+          category: "canceled" satisfies AutoFailureCategory,
+        },
+      );
     }
 
     appendAutoEvent({
@@ -391,9 +454,18 @@ export async function runAutoRun(autoRunId: string) {
     });
 
     const diff = await getGitOutput(["diff", "HEAD"], prepared.worktreePath);
-    const diffStat = await getGitOutput(["diff", "--stat", "HEAD"], prepared.worktreePath);
-    const changedFiles = await getGitOutput(["diff", "--name-only", "HEAD"], prepared.worktreePath);
-    const headCommitSha = await getGitOutput(["rev-parse", "HEAD"], prepared.worktreePath);
+    const diffStat = await getGitOutput(
+      ["diff", "--stat", "HEAD"],
+      prepared.worktreePath,
+    );
+    const changedFiles = await getGitOutput(
+      ["diff", "--name-only", "HEAD"],
+      prepared.worktreePath,
+    );
+    const headCommitSha = await getGitOutput(
+      ["rev-parse", "HEAD"],
+      prepared.worktreePath,
+    );
     updateAutoRunPaths({
       autoRunId: run.id,
       headCommitSha,
@@ -450,7 +522,10 @@ export async function runAutoRun(autoRunId: string) {
     }
     appendAutoEvent({
       autoRunId: run.id,
-      data: { exitCode: miniResult.exitCode, miniExitStatus: miniResult.miniExitStatus },
+      data: {
+        exitCode: miniResult.exitCode,
+        miniExitStatus: miniResult.miniExitStatus,
+      },
       message:
         status === "completed"
           ? "Auto Run completed. Review the report and diff before taking the next step."

@@ -14,22 +14,29 @@ try {
   await page.waitForURL("thrush://app/", { timeout: 100000 });
   const metadata = await application.evaluate(({ app }) => ({
     packaged: app.isPackaged,
+    version: app.getVersion(),
     resources: process.resourcesPath,
     data: app.getPath("userData"),
   }));
   expect(metadata.packaged).toBe(true);
+  if (process.env.THRUSH_EXPECT_VERSION)
+    expect(metadata.version).toBe(process.env.THRUSH_EXPECT_VERSION);
   expect(metadata.resources).toBe(
     path.join(path.dirname(executablePath), "resources"),
   );
   const state = await page.evaluate(() => window.thrushDesktop.getState());
   expect(state.phase).toBe("ready");
+  if (process.env.THRUSH_VERIFY_MODEL_KEY)
+    expect(state.settings.hasKey).toBe(true);
   expect(state.settings.environment).toBe("native");
   expect(await page.evaluate(() => typeof window.require)).toBe("undefined");
   if (state.settings.configured) {
     await page.getByRole("button", { name: "Settings", exact: false }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
   } else {
-    await expect(page.getByRole("dialog", { name: "Set up your workspace" })).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "Set up your workspace" }),
+    ).toBeVisible();
   }
 
   mkdirSync("test-results/desktop", { recursive: true });

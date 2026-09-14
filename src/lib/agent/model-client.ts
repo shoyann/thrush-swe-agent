@@ -160,7 +160,8 @@ function getReasoningContent(message: unknown) {
     return null;
   }
 
-  const reasoningContent = (message as { reasoning_content?: unknown }).reasoning_content;
+  const reasoningContent = (message as { reasoning_content?: unknown })
+    .reasoning_content;
   return typeof reasoningContent === "string" ? reasoningContent : null;
 }
 
@@ -206,7 +207,7 @@ export async function callModelForText(
   const response = await createModelClient(provider).chat.completions.create({
     model,
     messages,
-    ...(extraBody ? { extra_body: extraBody } : {}),
+    ...(extraBody ?? {}),
   } as never);
 
   const message = response.choices[0]?.message;
@@ -214,7 +215,8 @@ export async function callModelForText(
   const reasoningContent = getReasoningContent(message);
 
   return {
-    content: content || "I reached the model, but it did not return usable text.",
+    content:
+      content || "I reached the model, but it did not return usable text.",
     reasoning_content: reasoningContent,
   };
 }
@@ -231,7 +233,7 @@ export async function callModelForToolDecision(
     messages,
     tools: buildModelTools(allowedToolNames),
     tool_choice: "auto",
-    ...(extraBody ? { extra_body: extraBody } : {}),
+    ...(extraBody ?? {}),
   } as never);
 
   const message = response.choices[0]?.message;
@@ -265,7 +267,9 @@ export async function callModelForToolDecision(
     };
   }
 
-  const parsedArguments = parseToolCallArguments(firstToolCall.function.arguments);
+  const parsedArguments = parseToolCallArguments(
+    firstToolCall.function.arguments,
+  );
   if (!parsedArguments) {
     return {
       assistantMessage,

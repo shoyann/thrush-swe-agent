@@ -1,9 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type {
-  MiniPresetConfig,
-  RecommendedEnvironment,
-} from "@/types/auto";
+import type { MiniPresetConfig, RecommendedEnvironment } from "@/types/auto";
 
 function hasFile(workspacePath: string, filename: string) {
   return existsSync(path.join(workspacePath, filename));
@@ -16,7 +13,8 @@ export function detectRecommendedEnvironment(
     return {
       dockerImage: "node:22-bookworm",
       kind: "node",
-      reason: "Detected package.json, so Thrush will use a Node.js environment.",
+      reason:
+        "Detected package.json, so Thrush will use a Node.js environment.",
     };
   }
 
@@ -53,14 +51,20 @@ export function createRecommendedMiniPresetSnapshot(
 ): MiniPresetConfig {
   const environment = detectRecommendedEnvironment(workspacePath);
   const provider = process.env.MODEL_PROVIDER?.trim().toLowerCase();
-  const modelName =
+  const configuredModel =
     provider === "openai"
-      ? process.env.OPENAI_MODEL ?? "gpt-4.1-mini"
+      ? (process.env.OPENAI_MODEL ?? "gpt-4.1-mini")
       : provider === "anthropic"
-        ? process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514"
-        : process.env.DEEPSEEK_MINI_MODEL ??
+        ? (process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-20250514")
+        : (process.env.DEEPSEEK_MINI_MODEL ??
           process.env.DEEPSEEK_MODEL ??
-          "deepseek/deepseek-chat";
+          "deepseek-v4-flash");
+
+  // LiteLLM requires a provider-qualified name for newer/custom DeepSeek models.
+  const modelName =
+    (!provider || provider === "deepseek") && !configuredModel.includes("/")
+      ? "deepseek/" + configuredModel
+      : configuredModel;
 
   return {
     costLimit: Number(process.env.AUTO_RUN_COST_LIMIT ?? 3),

@@ -73,3 +73,24 @@ test("getMiniFailure detects dependency download timeouts from uv logs", () => {
   assert.equal(failure.category, "dependency_install_failed");
   assert.match(failure.message, /package download timed out/);
 });
+
+test("model rejection after Docker startup is reported as model configuration", () => {
+  const failure = getMiniFailure({
+    exitCode: 1,
+    logText: "Starting Docker container thrush-test\nLLM Provider NOT provided",
+    miniExitStatus: "Unknown",
+  });
+  assert.equal(failure.category, "model_config_missing");
+});
+
+test("normal container messages do not turn an unrelated failure into Docker failure", () => {
+  assert.equal(
+    getMiniFailure({
+      exitCode: 1,
+      logText:
+        "Starting Docker container thrush-test\nUnexpected agent failure",
+      miniExitStatus: "Unknown",
+    }).category,
+    "mini_failed",
+  );
+});

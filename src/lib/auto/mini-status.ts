@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import type { AutoFailureCategory, AutoMiniExitStatus } from "../../types/auto";
 
-export function parseMiniExitStatus(trajectoryPath: string): AutoMiniExitStatus {
+export function parseMiniExitStatus(
+  trajectoryPath: string,
+): AutoMiniExitStatus {
   try {
     const parsed = JSON.parse(readFileSync(trajectoryPath, "utf8")) as {
       info?: { exit_status?: unknown };
@@ -52,7 +54,23 @@ export function getMiniFailure(input: {
     };
   }
 
-  if (/docker|daemon|container|pull access denied|cannot connect/i.test(input.logText)) {
+  if (
+    /LLM Provider NOT provided|AuthenticationError|invalid.api.key|model.*not found|model.*does not exist/i.test(
+      input.logText,
+    )
+  ) {
+    return {
+      category: "model_config_missing",
+      message:
+        "The Auto model configuration was rejected. Check the model name, provider, API address and key in Settings.",
+    };
+  }
+
+  if (
+    /Cannot connect to.*(?:Docker|daemon)|Error response from daemon|docker.*(?:not found|failed|error)|(?:start|create).*container.*(?:failed|error)|(?:failed|error).*container|container.*(?:not found|not running)|pull access denied/i.test(
+      input.logText,
+    )
+  ) {
     return {
       category: "docker_start_failed",
       message:

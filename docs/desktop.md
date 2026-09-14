@@ -1,10 +1,10 @@
 # Thrush Desktop for Windows
 
-Thrush Desktop 2.1 is a Windows x64 internal-test application. It packages Electron, a production Next.js service, Node 22.22.3, and separate native and Ubuntu service resources. No source checkout or system Node installation is required to launch it.
+Thrush Desktop 2.1.1 is a Windows x64 internal-test application. It packages Electron, a production Next.js service, Node 22.22.3, and separate native and Ubuntu service resources. No source checkout or system Node installation is required to launch it.
 
 ## Install and start
 
-Run the NSIS installer, then open **Thrush** from the Start menu or desktop shortcut. The first-run assistant lets you choose Windows or a detected Ubuntu WSL distribution, configure a model endpoint and key, prepare Agent/browser dependencies, and optionally import history.
+Download the installer from [GitHub Releases](https://github.com/shoyann/thrush-swe-agent/releases/latest). Run the NSIS installer, then open **Thrush** from the Start menu or desktop shortcut. The first-run assistant lets you choose Windows or a detected Ubuntu WSL distribution, configure a model endpoint and key, prepare Agent/browser dependencies, and optionally import history.
 
 The internal-test installer is unsigned. Windows may show a publisher warning. Public release signing and automatic updates are not included.
 
@@ -79,6 +79,13 @@ The custom `thrush://app` handler forwards API/SSE requests through the main pro
 
 Automated coverage includes baseline unit tests, source-preserving import, API authentication, standalone startup, local-fixture model SSE, real draft approval/cancel, artifact rendering, Windows/WSL profile switching, and desktop layout screenshots.
 
-Tests use temporary profiles and projects. Real provider spending, GitHub publishing, and Docker execution require configured external services and are not simulated as successful live integrations.
+Tests use temporary profiles and projects. Live testing is an explicit opt-in: configure DeepSeek in the installed Thrush app, ensure Docker is running (with Ubuntu integration for WSL), then run from the Windows build checkout:
+
+```text
+npm run test:live -- native
+npm run test:live -- wsl
+```
+
+These tests use the existing encrypted credentials through Electron, create disposable Git projects, spend real API credits, and verify conversation, inspection, approval, Auto repair and cancellation. Each Auto Run has a $0.20, 12-step and 180-second limit. Credentials are never committed or included in test output. GitHub Draft PR publishing is not part of this test.
 
 See [the validation record](desktop-validation.md) for actual results and remaining environment-dependent checks.

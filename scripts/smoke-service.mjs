@@ -11,10 +11,11 @@ const data = mkdtempSync(path.join(os.tmpdir(), "thrush-service-中文 "));
 const workspace = path.join(data, "sample project");
 mkdirSync(workspace);
 writeFileSync(path.join(workspace, "README.md"), "# Smoke project\n");
+const requests = [];
 const fake = createServer(async (req, res) => {
-  for await (const chunk of req) {
-    void chunk;
-  }
+  let body = "";
+  for await (const chunk of req) body += chunk;
+  requests.push(JSON.parse(body));
   res.setHeader("Content-Type", "application/json");
   res.end(
     JSON.stringify({
@@ -67,10 +68,10 @@ child.stdin.write(
       THRUSH_RUNTIME_DIR: path.join(data, "runtime"),
       THRUSH_INSTANCE_ID: instance,
       AGENT_API_SECRET: token,
-      MODEL_PROVIDER: "openai",
-      OPENAI_API_KEY: "local-fixture-only",
-      OPENAI_MODEL: "smoke",
-      OPENAI_BASE_URL: "http://127.0.0.1:" + fake.address().port + "/v1",
+      MODEL_PROVIDER: "deepseek",
+      DEEPSEEK_API_KEY: "local-fixture-only",
+      DEEPSEEK_MODEL: "smoke",
+      DEEPSEEK_BASE_URL: "http://127.0.0.1:" + fake.address().port + "/v1",
     },
   }) + "\n",
 );
@@ -122,6 +123,9 @@ try {
   });
   assert.equal(stream.status, 200);
   const text = await stream.text();
+  assert.ok(requests.length > 0);
+  assert.deepEqual(requests[0].thinking, { type: "disabled" });
+  assert.equal(requests[0].extra_body, undefined);
   assert.ok(text.includes('"type":"done"'), text);
   const detail = await (await api("/api/sessions/" + sid)).json();
   assert.ok(detail.session.messages.length >= 2);

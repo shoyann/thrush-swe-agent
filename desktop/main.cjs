@@ -24,6 +24,7 @@ const {
   credentials,
   validateSettings,
 } = require("./security.cjs");
+const { serviceFetch } = require("./service-fetch.cjs");
 const exec = promisify(execFile);
 protocol.registerSchemesAsPrivileged([
   {
@@ -161,7 +162,7 @@ function modelEnv() {
 }
 async function serviceRequest(route, options = {}) {
   if (!endpoint) throw new Error("The local service is not running.");
-  return fetch(endpoint + route, {
+  return serviceFetch(endpoint + route, {
     ...options,
     headers: { ...options.headers, authorization: "Bearer " + auth.token },
     signal: options.signal || AbortSignal.timeout(15000),
@@ -266,6 +267,17 @@ async function launch() {
       : path.sep;
   const env = {
     ...modelEnv(),
+    // wsl.exe does not inherit ordinary Windows environment variables.
+    // Forward the existing Auto limits explicitly through private stdin.
+    ...Object.fromEntries(
+      [
+        "AUTO_RUN_COST_LIMIT",
+        "AUTO_RUN_STEP_LIMIT",
+        "AUTO_RUN_WALL_TIME_LIMIT_SECONDS",
+      ]
+        .filter((key) => process.env[key] !== undefined)
+        .map((key) => [key, process.env[key]]),
+    ),
     THRUSH_DESKTOP: "1",
     THRUSH_RESOURCE_DIR: root,
     THRUSH_DATA_DIR: data,
@@ -478,15 +490,18 @@ else {
           headers.set("authorization", "Bearer " + auth.token);
           headers.delete("host");
           headers.delete("connection");
-          const response = await fetch(endpoint + url.pathname + url.search, {
-            method: request.method,
-            headers,
-            body: ["GET", "HEAD"].includes(request.method)
-              ? undefined
-              : await request.arrayBuffer(),
-            redirect: "manual",
-            signal: request.signal,
-          });
+          const response = await serviceFetch(
+            endpoint + url.pathname + url.search,
+            {
+              method: request.method,
+              headers,
+              body: ["GET", "HEAD"].includes(request.method)
+                ? undefined
+                : await request.arrayBuffer(),
+              redirect: "manual",
+              signal: request.signal,
+            },
+          );
           const resultHeaders = new Headers(response.headers);
           resultHeaders.delete("content-encoding");
           resultHeaders.delete("content-length");
@@ -499,6 +514,17 @@ else {
             headers: resultHeaders,
           });
         } catch (error) {
+          log(
+            "Proxy " +
+              request.method +
+              " " +
+              url.pathname +
+              ": " +
+              error.message +
+              " (" +
+              (error.cause?.code || error.cause?.message || "") +
+              ")",
+          );
           return Response.json(
             { error: "Local service unavailable: " + error.message },
             { status: 503 },

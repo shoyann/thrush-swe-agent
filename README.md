@@ -1,8 +1,20 @@
-# Thrush Desktop
+# Thrush Desktop 2.1.1
 
-Windows desktop workbench with native and WSL execution environments. Start with the [desktop installation and build guide](docs/desktop.md).
+A Windows desktop workbench for AI coding, with an English interface, native Windows and Ubuntu WSL environments, and local project history.
 
-The source browser workflow remains available for development. The original V2 architecture is documented below.
+**[Download the Windows x64 installer](https://github.com/shoyann/thrush-swe-agent/releases/latest)** · [Install and build](docs/desktop.md) · [Validation record](docs/desktop-validation.md)
+
+- Install once and launch from your desktop or Start menu. Electron, Node and both service bundles are included.
+- **Assist:** chat, inspect files, and approve proposed edits before they are applied.
+- **Auto:** run mini-swe-agent in Docker, review its report and isolated Git diff, or cancel with container cleanup.
+- Configure providers and encrypted API keys in Settings, prepare dependencies, and switch between Windows and WSL.
+- A warm, minimal workspace with projects and conversations on the left and on-demand report, file and diff review.
+
+DeepSeek conversations, file tools, edit approvals and Docker Auto execution/cancellation have been tested against the real service. See the validation record for platform results and remaining limitations.
+
+This is an unsigned Windows 11 x64 internal-test release. Git and Docker are needed for Auto; no source checkout or system Node installation is needed to launch the app. Windows and WSL retain separate histories.
+
+The browser workflow remains available for source development. The original V2 architecture and source quickstart follow.
 
 ---
 

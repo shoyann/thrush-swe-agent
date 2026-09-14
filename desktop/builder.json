@@ -8,6 +8,7 @@
     "desktop/main.cjs",
     "desktop/preload.cjs",
     "desktop/security.cjs",
+    "desktop/service-fetch.cjs",
     "package.json",
     "!node_modules/**/*"
   ],
@@ -34,7 +35,9 @@
     "target": [
       {
         "target": "nsis",
-        "arch": ["x64"]
+        "arch": [
+          "x64"
+        ]
       }
     ],
     "icon": "public/icon.png",

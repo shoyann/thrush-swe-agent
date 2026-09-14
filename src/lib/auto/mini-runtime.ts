@@ -59,6 +59,9 @@ function canImportRuntime(pythonPath: string) {
   try {
     execFileSync(pythonPath, ["-c", "import litellm, openai, minisweagent"], {
       stdio: "ignore",
+      // Readiness checks validate imports without fetching LiteLLM's remote
+      // pricing registry. Real Agent runs retain normal cost tracking.
+      env: { ...process.env, LITELLM_LOCAL_MODEL_COST_MAP: "True" },
       timeout: 15_000,
       windowsHide: true,
     });

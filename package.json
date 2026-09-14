@@ -1,6 +1,6 @@
 {
   "name": "thrush-swe-agent",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "scripts": {
     "bootstrap:mini": "node scripts/bootstrap-mini.mjs",
@@ -18,7 +18,8 @@
     "test:review": "node scripts/test-review.mjs",
     "test:wsl": "node scripts/test-wsl.mjs",
     "test:lifecycle": "node scripts/test-lifecycle.mjs",
-    "test:installed": "node scripts/test-installed.mjs"
+    "test:installed": "node scripts/test-installed.mjs",
+    "test:live": "node scripts/test-live.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

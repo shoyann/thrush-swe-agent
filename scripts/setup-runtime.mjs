@@ -45,6 +45,7 @@ function run(command, args) {
         UV_PYTHON_INSTALL_DIR: path.join(runtime, "python"),
         UV_CACHE_DIR: path.join(runtime, "uv-cache"),
         UV_HTTP_TIMEOUT: "120",
+        LITELLM_LOCAL_MODEL_COST_MAP: "True",
       },
     });
     // A stalled dependency download must return control to the setup retry UI.

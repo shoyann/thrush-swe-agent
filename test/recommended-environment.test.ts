@@ -8,7 +8,10 @@ import {
   detectRecommendedEnvironment,
 } from "../src/lib/auto/recommended-environment";
 
-function withTempWorkspace(files: string[], run: (workspacePath: string) => void) {
+function withTempWorkspace(
+  files: string[],
+  run: (workspacePath: string) => void,
+) {
   const workspacePath = mkdtempSync(path.join(tmpdir(), "thrush-env-"));
 
   try {
@@ -57,5 +60,37 @@ test("createRecommendedMiniPresetSnapshot hides Docker behind recommended defaul
     assert.equal(snapshot.environmentKind, "generic");
     assert.equal(snapshot.dockerImage, "debian:bookworm");
     assert.equal(snapshot.networkPolicy, "default");
+  });
+});
+
+test("Auto qualifies a desktop DeepSeek model without changing explicit provider names", (t) => {
+  const saved = {
+    provider: process.env.MODEL_PROVIDER,
+    model: process.env.DEEPSEEK_MODEL,
+    mini: process.env.DEEPSEEK_MINI_MODEL,
+  };
+  t.after(() => {
+    for (const [name, value] of Object.entries({
+      MODEL_PROVIDER: saved.provider,
+      DEEPSEEK_MODEL: saved.model,
+      DEEPSEEK_MINI_MODEL: saved.mini,
+    })) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  process.env.MODEL_PROVIDER = "deepseek";
+  process.env.DEEPSEEK_MODEL = "deepseek-v4-flash";
+  delete process.env.DEEPSEEK_MINI_MODEL;
+  withTempWorkspace([], (workspace) => {
+    assert.equal(
+      createRecommendedMiniPresetSnapshot(workspace).modelName,
+      "deepseek/deepseek-v4-flash",
+    );
+    process.env.DEEPSEEK_MINI_MODEL = "openrouter/deepseek/deepseek-v4-flash";
+    assert.equal(
+      createRecommendedMiniPresetSnapshot(workspace).modelName,
+      "openrouter/deepseek/deepseek-v4-flash",
+    );
   });
 });

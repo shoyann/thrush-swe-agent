@@ -2,7 +2,7 @@ name: Desktop Windows
 on:
   workflow_dispatch:
   push:
-    branches: [codex/desktop-app]
+    branches: [main, codex/desktop-app]
 jobs:
   linux-runtime:
     runs-on: ubuntu-22.04
