@@ -2,11 +2,19 @@
   <img src="https://github.com/user-attachments/assets/bb389b24-24a8-4d2c-a9e2-aec316b43bf5" alt="Thrush logo" width="120" />
 </p>
 
-<h1 align="center">Thrush Desktop</h1>
+<h1 align="center">Thrush Desktop 2.1.1</h1>
 
 <p align="center">
   <strong>A local desktop workbench for AI coding.</strong><br>
   Work through changes with Assist, or give Auto a task and review the result.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&amp;logo=electron&amp;logoColor=white" alt="Electron 44" />
+  <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&amp;logo=nextdotjs&amp;logoColor=white" alt="Next.js 15" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&amp;logo=typescript&amp;logoColor=white" alt="TypeScript 5" />
+  <img src="https://img.shields.io/badge/SQLite-local_state-003B57?style=for-the-badge&amp;logo=sqlite&amp;logoColor=white" alt="SQLite local state" />
+  <img src="https://img.shields.io/badge/mini--swe--agent-bundled-FFB000?style=for-the-badge" alt="Bundled mini-swe-agent" />
 </p>
 
 <p align="center">
