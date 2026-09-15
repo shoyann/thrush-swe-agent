@@ -1,248 +1,113 @@
-# Thrush Desktop 2.1.1
-
-A Windows desktop workbench for AI coding, with an English interface, native Windows and Ubuntu WSL environments, and local project history.
-
-**[Download the Windows x64 installer](https://github.com/shoyann/thrush-swe-agent/releases/latest)** · [Install and build](docs/desktop.md) · [Validation record](docs/desktop-validation.md)
-
-- Install once and launch from your desktop or Start menu. Electron, Node and both service bundles are included.
-- **Assist:** chat, inspect files, and approve proposed edits before they are applied.
-- **Auto:** run mini-swe-agent in Docker, review its report and isolated Git diff, or cancel with container cleanup.
-- Configure providers and encrypted API keys in Settings, prepare dependencies, and switch between Windows and WSL.
-- A warm, minimal workspace with projects and conversations on the left and on-demand report, file and diff review.
-
-DeepSeek conversations, file tools, edit approvals and Docker Auto execution/cancellation have been tested against the real service. See the validation record for platform results and remaining limitations.
-
-This is an unsigned Windows 11 x64 internal-test release. Git and Docker are needed for Auto; no source checkout or system Node installation is needed to launch the app. Windows and WSL retain separate histories.
-
-The browser workflow remains available for source development. The original V2 architecture and source quickstart follow.
-
----
-
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/bb389b24-24a8-4d2c-a9e2-aec316b43bf5" width="120" />
+  <img src="https://github.com/user-attachments/assets/bb389b24-24a8-4d2c-a9e2-aec316b43bf5" alt="Thrush logo" width="120" />
 </p>
 
-<h1 align="center">THRUSH V2.0</h1>
+<h1 align="center">Thrush Desktop</h1>
 
 <p align="center">
-  <strong>A dual-mode local SWE agent workbench.</strong><br>
-  Assist when you want to approve every edit. Auto when you want an isolated agent run,
-  a readable report, and a reviewable diff.
+  <strong>A local desktop workbench for AI coding.</strong><br>
+  Work through changes with Assist, or give Auto a task and review the result.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" />
-  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
-  <img src="https://img.shields.io/badge/SQLite-local_state-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
-  <img src="https://img.shields.io/badge/mini--swe--agent-bundled-FFB000?style=for-the-badge" />
+  <a href="https://github.com/shoyann/thrush-swe-agent/releases/latest">Download for Windows</a> ·
+  <a href="docs/desktop.md">Desktop guide</a> ·
+  <a href="docs/source-development.md">Run from source</a> ·
+  <a href="docs/desktop-validation.md">Validation record</a>
 </p>
 
----
+## Overview
 
-## What is Thrush?
+Thrush brings projects, conversations, file review, and coding agents into one desktop app. It has an English interface and runs in either native Windows or Ubuntu through Windows Subsystem for Linux (WSL).
 
-Thrush is a local workbench for software engineering agents.
+| Mode | How you work | How changes are handled |
+| --- | --- | --- |
+| **Assist** | Chat with the agent, inspect files, search code, and work through a task step by step. | File edits are prepared as drafts for you to approve before they are applied. |
+| **Auto** | Give mini-swe-agent a task, then review its report, diff, logs, and execution history. | Each run uses a separate Git working copy (a worktree). Docker is the default execution environment. |
 
-V2.0 has two modes inside the same project UI:
+Projects and conversations are saved locally. Model requests go to your configured provider. Settings lets you choose a provider, store encrypted API keys, prepare Agent and browser dependencies, and switch execution environments.
 
-| Mode | Best for | Safety model |
-|---|---|---|
-| Assist | Working with the agent step by step | The agent drafts edits first; the user approves before files are written |
-| Auto | Letting mini-swe-agent attempt a complete task | The agent runs in an isolated Git worktree and returns a report, diff, logs, and trajectory |
+**Current release: 2.1.1 — Windows 11 x64, internal testing.** The installer is unsigned. Signing, automatic updates, and a macOS desktop release are not included.
 
-Auto does not directly modify your main workspace. It creates a separate worktree under `data/auto-runs/<autoRunId>/worktree`, runs `mini-swe-agent`, then shows what changed. Creating a Draft PR is a user action, not an automatic side effect.
+## Get started
 
-## What changed in V2.0
+1. **Install Thrush.** Download `Thrush-2.1.1-windows-x64.exe` from the [2.1.1 release](https://github.com/shoyann/thrush-swe-agent/releases/tag/v2.1.1), run it, and open **Thrush** from your desktop or Start menu. Windows may display an unknown-publisher warning for this unsigned build.
+2. **Complete setup.** Choose Windows or a detected Ubuntu WSL environment, configure your model provider and API key, and prepare the dependencies offered by the setup assistant.
+3. **Open a project.** Start with **Assist** for an interactive task, or select **Auto** and resolve its readiness checks before starting a run.
 
-- Project workbench UI with top-level `Assist | Auto` switching.
-- Auto Mode backed by bundled `mini-swe-agent` in `vendor/mini-swe-agent`.
-- Non-interactive mini runner at `scripts/mini-auto-run.py`.
-- Environment Doctor before Auto starts: Git clean state, Docker, mini runtime, model config, and GitHub readiness.
-- Human-readable Auto Report artifact, plus Diff, Logs, Trajectory, and Changed Files in a side drawer.
-- Auto runs stored separately from Assist sessions in SQLite tables for runs, events, artifacts, and presets.
-- Runtime bootstrap now prepares `data/mini-venv` once so Auto does not block every run on `uv run --with openai/litellm` dependency downloads.
+The installer includes Electron, Node, and the Windows and Ubuntu service bundles. You do not need a source checkout or a separate Node installation to launch the app.
 
-## Quickstart
+### What you need
 
-Clone with submodules:
+| Component | When it is needed |
+| --- | --- |
+| Model provider account and API key | For model-backed tasks. DeepSeek, OpenAI, and an Anthropic-compatible gateway are configurable. |
+| Git in the selected environment | For project Git operations and Auto worktrees. Auto requires a project with no uncommitted changes. |
+| Docker Desktop | For the default Docker Auto environment. Enable Ubuntu under **Settings → Resources → WSL Integration** when using WSL. |
+| Ubuntu WSL | Only if you choose WSL execution. Thrush does not install or configure WSL. |
+| GitHub CLI (`gh`), signed in | Only when creating a draft pull request on GitHub. |
+| Project-specific tools | As required by the project and its execution environment. |
 
-```bash
-git clone --recurse-submodules https://github.com/shoyann/thrush-swe-agent.git
-cd thrush-swe-agent
-```
+The Anthropic option requires an OpenAI-compatible gateway URL. See the [desktop guide](docs/desktop.md) for environment setup and dependency details.
 
-If you already cloned the repo:
+## Work with Assist or Auto
 
-```bash
-git submodule update --init --recursive
-```
+### Assist
 
-Install Node dependencies:
-
-```bash
-npm install
-```
-
-Prepare the bundled Auto runtime:
-
-```bash
-npm run bootstrap:mini
-```
-
-This creates `data/mini-venv`, installs the bundled `mini-swe-agent`, installs the Python runtime dependencies, and writes `data/mini-venv/.ready.json`. The venv and package caches are local generated files and are not committed.
-
-Copy and edit local environment settings:
-
-```bash
-cp .env.local.example .env.local
-```
-
-At minimum:
-
-```bash
-MODEL_PROVIDER=deepseek
-DEEPSEEK_API_KEY=your-api-key
-AGENT_API_SECRET=replace-with-a-long-random-local-secret
-NEXT_PUBLIC_AGENT_API_SECRET=replace-with-the-same-local-secret
-```
-
-Start Thrush:
-
-```bash
-npm run dev
-```
-
-Open:
+Assist can inspect files, search code, read web pages, run allowlisted commands, and propose edits. Review each file draft and approve or discard it in the UI.
 
 ```text
-http://localhost:3000
+Inspect → Discuss → Draft → Review → Approve or discard
 ```
 
-## Windows and WSL
+File tools restrict paths to the active workspace. Allowlisted commands can still run project code; they are not a hardened sandbox.
 
-Thrush works best from WSL Ubuntu when your projects live under `/home/<user>/...`.
+### Auto
 
-For Auto Mode with Docker Desktop:
+Auto checks the project's Git state, the Agent runtime, model configuration, and Docker availability for Docker runs. GitHub readiness is checked separately for optional draft pull requests.
 
-1. Install Docker Desktop on Windows.
-2. Open Docker Desktop settings.
-3. Go to `Resources -> WSL Integration`.
-4. Enable integration for Ubuntu.
-5. In WSL, verify:
+For each run, Thrush:
 
-```bash
-docker info
-```
+1. Creates a branch and a separate Git worktree for the task.
+2. Runs the bundled mini-swe-agent with the selected environment and limits.
+3. Collects a report, file changes, diff, logs, and execution history for review.
 
-If Docker is not visible from WSL, Auto will stop before starting and explain the exact next step.
+The run leaves the files in your original project workspace unchanged. You can cancel a running task; Thrush cleans up its owned Docker containers after completion, failure, cancellation, or timeout.
 
-## Auto Mode
+**Publishing is a separate action.** After a successful run, review the report and diff, then choose **Create Draft PR** to open a draft pull request. This requires a GitHub `origin` remote and a signed-in GitHub CLI. Auto does not publish a pull request on its own.
 
-Auto Mode is designed for “try this task end to end, but do not touch my main project.”
+## Local data and environments
 
-Before a run starts, Thrush checks:
+Windows and WSL keep separate project histories and databases. Only one environment runs at a time; finish active tasks and dependency preparation before switching.
 
-- The main Git workspace is clean.
-- Docker is available when using the recommended Docker environment.
-- The bundled mini runtime is ready.
-- The selected model has the required API key.
-- GitHub Draft PR creation is available, if you want to create a PR later.
+| Environment | Default data location |
+| --- | --- |
+| Windows desktop | `%APPDATA%/Thrush/environments/native` |
+| WSL desktop | `~/.local/share/thrush/data` |
+| Source development | `data/` in the source checkout |
 
-When Auto runs, Thrush:
+Desktop credentials are encrypted in the app's settings store. History import accepts an old `data` folder into an empty destination; imported Auto runs are available for review only. See [data locations](docs/desktop.md#runtime-profiles-and-data) and [history import](docs/desktop.md#import-history) for details.
 
-1. Creates a branch named `auto/<autoRunId>`.
-2. Creates an isolated Git worktree under `data/auto-runs`.
-3. Starts `mini-swe-agent` through the prepared local venv.
-4. Collects diff, diff stat, changed files, logs, and trajectory.
-5. Generates a human-readable report.
-6. Leaves your main workspace unchanged.
+## Release validation and limitations
 
-Auto status values:
+The [2.1.1 validation record](docs/desktop-validation.md) documents live DeepSeek conversations, file tools, edit approvals, Docker Auto repair, cancellation, and timeout cleanup on Windows 11 and WSL Ubuntu 26.04. It also records automated checks, installer checks, and UI review.
 
-```text
-queued -> preparing -> running -> reporting -> completed
-```
+Remaining gaps include:
 
-Failure states include clear categories such as Docker unavailable, model key missing, mini runtime missing, timeout, cost limit, canceled, or workspace dirty.
+- Clean Ubuntu 22.04 and 24.04 validation; these are the primary WSL targets, while the recorded live tests used 26.04.
+- WSL browser support on the tested machine, where Chromium still needs additional system libraries.
+- GitHub draft pull request creation from an Auto result, which was not exercised in the recorded live tests.
 
-## Assist Mode
+See the validation record for the complete test scope. Review generated changes before applying or publishing them, and use care with untrusted projects and secrets.
 
-Assist Mode is the original Thrush workflow.
+## Development and documentation
 
-The agent can inspect files, search code, read pages, reason through issues, run allowlisted commands, and prepare file edits. File writes are not applied immediately. They are staged as pending drafts and require explicit approval.
+The browser workflow remains available for source development. The app uses Electron, Next.js, TypeScript, SQLite, and the bundled mini-swe-agent.
 
-The core loop is:
-
-```text
-Inspect -> Think -> Draft -> Ask -> Write
-```
-
-## Environment variables
-
-| Name | Required | Purpose |
-|---|---:|---|
-| `MODEL_PROVIDER` | No | `deepseek`, `openai`, or `anthropic`; defaults to `deepseek` |
-| `DEEPSEEK_API_KEY` | If using DeepSeek | Server-side model key |
-| `DEEPSEEK_BASE_URL` | No | Defaults to `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | No | Defaults to `deepseek-v4-flash` |
-| `OPENAI_API_KEY` | If using OpenAI | Server-side model key |
-| `OPENAI_BASE_URL` | No | Optional OpenAI-compatible base URL |
-| `OPENAI_MODEL` | If using OpenAI | Defaults to `gpt-4.1-mini` |
-| `ANTHROPIC_API_KEY` | If using Anthropic | Server-side model key |
-| `ANTHROPIC_BASE_URL` | If using Anthropic | OpenAI-compatible Anthropic gateway URL |
-| `ANTHROPIC_MODEL` | If using Anthropic | Defaults to `claude-sonnet-4-20250514` |
-| `AGENT_API_SECRET` | Yes | Server-side Bearer token for `/api/agent` |
-| `NEXT_PUBLIC_AGENT_API_SECRET` | Local dev only | Browser token for local UI calls |
-| `AGENT_WORKSPACE_ROOT` | No | Default local workspace path |
-| `AUTO_RUN_MINI_COMMAND` | Advanced | Override mini runner command |
-| `AUTO_RUN_MINI_ARGS_PREFIX_JSON` | Advanced | JSON array of args to prepend to the custom mini command |
-| `GH_PATH` | No | Absolute path to `gh.exe` or `gh` if not on `PATH` |
-
-## Local state
-
-Thrush stores local state under `data/`:
-
-| Path | Purpose |
-|---|---|
-| `data/thrush.db` | SQLite app database |
-| `data/workspace` | Default sample workspace |
-| `data/auto-runs` | Auto worktrees and artifacts |
-| `data/mini-venv` | Generated Python runtime for bundled mini-swe-agent |
-| `data/pip-cache`, `data/uv-cache` | Local dependency caches |
-
-These generated files are ignored by Git.
-
-## GitHub Draft PRs
-
-Auto does not create PRs by itself. After a completed Auto Run, review the report and diff, then click Create Draft PR if GitHub readiness passes.
-
-Requirements:
-
-- The target project has a GitHub `origin` remote.
-- `gh auth status` succeeds.
-- The Auto Run completed successfully.
-
-## Development
-
-Run checks:
-
-```bash
-npm run test
-npx tsc --noEmit
-npm run lint
-```
-
-The repository includes tests for Auto data flow, readiness checks, recommended environments, the mini resolver, and runner behavior with fake mini results.
-
-## Safety notes
-
-- Do not commit `.env.local`; it is ignored by Git.
-- Do not put production secrets in `NEXT_PUBLIC_*` variables.
-- Assist file tools reject paths outside the active workspace.
-- Assist command execution is allowlisted, not a hardened sandbox.
-- Auto runs project code inside Docker by default, but the user should still review diffs and logs before applying changes or creating a PR.
-- Auto requires a clean main Git workspace so generated changes do not mix with unfinished local work.
-
-## Status
-
-Thrush V2.0 is an early local product, not just a prototype: it has persistent projects, two agent modes, isolated Auto runs, environment readiness checks, artifacts, readable reports, and regression tests. It is still local-dev oriented and should be treated carefully around untrusted repositories and secrets.
+| Guide | Contents |
+| --- | --- |
+| [Source development](docs/source-development.md) | Browser quickstart, model settings, environment variables, local runtime, and checks |
+| [Desktop guide](docs/desktop.md) | Installation, Windows/WSL setup, history import, desktop builds, and packaging |
+| [Validation record](docs/desktop-validation.md) | Recorded 2.1.1 results, known gaps, and reproduction commands |
+| [Auto technical design](docs/design/auto-mode-technical-design.md) | Original Auto architecture and implementation design |
+| [Architecture decisions](docs/adr) | Docker defaults, review before publishing, bundled Agent, and worker design |
