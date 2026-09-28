@@ -1,4 +1,5 @@
 import type {
+  AgentSessionContext,
   AgentResponse,
   AgentStep,
   AgentStreamEvent,
@@ -7,6 +8,11 @@ import type {
 import type { ToolRun } from "@/lib/agent/tool-run-types";
 
 export type RunAgentOptions = {
+  signal?: AbortSignal;
+  onCheckpoint?: (
+    context: AgentSessionContext,
+    steps: AgentStep[],
+  ) => void | Promise<void>;
   onEvent?: (event: AgentStreamEvent) => void | Promise<void>;
   onToolRun?: (toolRun: ToolRun) => void | Promise<void>;
   projectId?: string;
@@ -14,7 +20,11 @@ export type RunAgentOptions = {
   workspaceRoot?: string;
 };
 
-export function createStep(id: string, title: string, detail: string): AgentStep {
+export function createStep(
+  id: string,
+  title: string,
+  detail: string,
+): AgentStep {
   return {
     id,
     title,

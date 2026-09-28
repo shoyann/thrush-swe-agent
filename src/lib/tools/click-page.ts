@@ -6,7 +6,6 @@ import type {
 } from "@/lib/tools/types";
 import { launchPlaywrightChromium } from "@/lib/tools/playwright-browser";
 import { assertSafeUrl } from "@/lib/tools/url-guard";
-import { formatClickPageAnswer } from "@/lib/agent/page-result-format";
 
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const CLICK_TIMEOUT_MS = 8_000;
@@ -38,7 +37,8 @@ function normalizeMaxChars(value: unknown) {
 
 function parseClickPageObjectInput(input: ToolCallArgs): ParsedClickPageInput {
   const url = typeof input.url === "string" ? input.url.trim() : "";
-  const selector = typeof input.selector === "string" ? input.selector.trim() : "";
+  const selector =
+    typeof input.selector === "string" ? input.selector.trim() : "";
 
   if (!url) {
     return {
@@ -161,7 +161,9 @@ function formatClickPageSummary(
   ].join("\n");
 }
 
-async function executeClickPage(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeClickPage(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const parsed = parseClickPageInput(input);
 
   if (!parsed.ok) {
@@ -174,7 +176,9 @@ async function executeClickPage(input: ToolExecutionInput): Promise<ToolResult> 
   try {
     assertSafeUrl(parsed.url);
   } catch (error) {
-    console.warn("Blocked click_page request for unsafe URL.", { url: parsed.url });
+    console.warn("Blocked click_page request for unsafe URL.", {
+      url: parsed.url,
+    });
 
     return {
       ok: false,
@@ -221,7 +225,10 @@ async function executeClickPage(input: ToolExecutionInput): Promise<ToolResult> 
     await page.waitForTimeout(POST_CLICK_WAIT_MS);
 
     const pageTitle = (await page.title()).trim();
-    const visibleText = await page.locator("body").innerText().catch(() => "");
+    const visibleText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
 
     return {
       ok: true,
@@ -269,21 +276,4 @@ export const clickPageTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeClickPage,
-  onResult(goal, result) {
-    if (!result.ok) {
-      return {
-        type: "immediate",
-        message: result.content,
-      };
-    }
-
-    const formattedClickPageAnswer = formatClickPageAnswer(goal, result.content);
-
-    return formattedClickPageAnswer
-      ? {
-          type: "immediate",
-          message: formattedClickPageAnswer,
-        }
-      : null;
-  },
 };

@@ -99,7 +99,8 @@ The Anthropic option uses an OpenAI-compatible gateway protocol. Supply a compat
 | --- | --- | --- |
 | `AGENT_API_SECRET` | Required for direct `/api/agent` clients | Server-side Bearer token; local same-origin development browser requests are exempt |
 | `AGENT_WORKSPACE_ROOT` | Optional | Default workspace path; otherwise `data/workspace` |
-| `AGENT_MAX_TOOL_CALLS` | Optional | Maximum tool calls per Assist request; defaults to `4` |
+| `AGENT_MAX_RUN_MS` | Optional | Assist turn time budget checked between actions; defaults to `600000`, capped at `3600000` |
+| `AGENT_MAX_TOOL_CALLS` | Optional | Tool calls per Assist turn including plan/finish calls; defaults to `24`, capped at `100`. Exhaustion pauses the task. |
 | `AUTO_RUN_MINI_COMMAND` | Advanced | Override the mini runner command |
 | `AUTO_RUN_MINI_ARGS_PREFIX_JSON` | Advanced | JSON array of arguments prepended to a custom mini command |
 | `GH_PATH` | Optional | Absolute path to `gh.exe` or `gh` when it is not on `PATH` |

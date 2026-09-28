@@ -7,11 +7,10 @@ import type {
   ToolExecutionInput,
   ToolResult,
 } from "@/lib/tools/types";
-import { getWorkspaceRoot, resolveWorkspacePath } from "@/lib/tools/workspace-path";
 import {
-  formatIssueInvestigationAnswer,
-  isIssueDrivenReadForDraft,
-} from "@/lib/agent/issue-flow";
+  getWorkspaceRoot,
+  resolveWorkspacePath,
+} from "@/lib/tools/workspace-path";
 
 const execFileAsync = promisify(execFile);
 const MAX_RESULTS = 50;
@@ -86,11 +85,7 @@ function shortenSnippet(line: string) {
   return `${normalizedLine.slice(0, MAX_SNIPPET_LENGTH - 3)}...`;
 }
 
-function formatMatches(
-  output: string,
-  query: string,
-  targetPath: string,
-) {
+function formatMatches(output: string, query: string, targetPath: string) {
   const uniqueMatches = new Map<string, string>();
 
   for (const line of output.split(/\r?\n/)) {
@@ -108,7 +103,10 @@ function formatMatches(
     const key = `${normalizedPath}:${lineNumber}`;
 
     if (!uniqueMatches.has(key)) {
-      uniqueMatches.set(key, `${normalizedPath}:${lineNumber}: ${shortenSnippet(snippet)}`);
+      uniqueMatches.set(
+        key,
+        `${normalizedPath}:${lineNumber}: ${shortenSnippet(snippet)}`,
+      );
     }
 
     if (uniqueMatches.size >= MAX_RESULTS) {
@@ -134,7 +132,9 @@ function parseSearchTextInput(input: ToolExecutionInput) {
   return parseSearchTextObjectInput(input);
 }
 
-async function executeSearchText(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeSearchText(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const parsed = parseSearchTextInput(input);
 
   if (!parsed.ok) {
@@ -147,7 +147,9 @@ async function executeSearchText(input: ToolExecutionInput): Promise<ToolResult>
   try {
     const absoluteTargetPath = resolveWorkspacePath(parsed.targetPath);
     const relativeTargetPath =
-      path.relative(getWorkspaceRoot(), absoluteTargetPath).replace(/\\/g, "/") || ".";
+      path
+        .relative(getWorkspaceRoot(), absoluteTargetPath)
+        .replace(/\\/g, "/") || ".";
 
     const { stdout } = await execFileAsync(
       "rg",
@@ -217,14 +219,4 @@ export const searchTextTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeSearchText,
-  onResult(goal, _result, toolRuns) {
-    const issueInvestigationAnswer = formatIssueInvestigationAnswer(goal, toolRuns);
-
-    return issueInvestigationAnswer && !isIssueDrivenReadForDraft(toolRuns)
-      ? {
-          type: "immediate",
-          message: issueInvestigationAnswer,
-        }
-      : null;
-  },
 };

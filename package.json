@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsc -p tsconfig.test.json && node --test \".test-dist/test/**/*.js\"",
+    "test": "tsc -p tsconfig.test.json && node --require ./scripts/test-alias.cjs --test \".test-dist/test/**/*.js\"",
     "desktop:dev": "electron .",
     "desktop:stage": "node scripts/stage-desktop.mjs",
     "desktop:package": "node node_modules/electron/install.js && electron-builder --config desktop/builder.json --win --x64",

@@ -6,11 +6,6 @@ import type {
   ToolResult,
 } from "@/lib/tools/types";
 import { getWorkspaceRoot } from "@/lib/tools/workspace-path";
-import {
-  deriveIssueInvestigationToolCallFromToolRun,
-  extractIssuePlanFromGitInspectReport,
-  parseGitInspectAction,
-} from "@/lib/agent/issue-flow";
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_PREVIEW_LENGTH = 12_000;
@@ -172,15 +167,21 @@ function formatGitInspectReport(report: GitInspectReport) {
       ? report.githubReadinessMissing.join("\n")
       : "(none)",
     "remote_entries:",
-    report.remoteEntries.length > 0 ? report.remoteEntries.join("\n") : "(none)",
+    report.remoteEntries.length > 0
+      ? report.remoteEntries.join("\n")
+      : "(none)",
     "status_entries:",
-    report.statusEntries.length > 0 ? report.statusEntries.join("\n") : "(none)",
+    report.statusEntries.length > 0
+      ? report.statusEntries.join("\n")
+      : "(none)",
     "diff_preview:",
     report.diffPreview ?? "(none)",
   ].join("\n");
 }
 
-function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput {
+function parseGitInspectInput(
+  input: ToolExecutionInput,
+): ParsedGitInspectInput {
   if (typeof input === "string") {
     return {
       ok: false,
@@ -230,11 +231,14 @@ function parseGitInspectInput(input: ToolExecutionInput): ParsedGitInspectInput 
   }
 
   if (action === "issue_plan") {
-    const issueText = typeof input.issue_text === "string" ? input.issue_text.trim() : "";
+    const issueText =
+      typeof input.issue_text === "string" ? input.issue_text.trim() : "";
     const issueNumber = input.issue_number;
 
     const hasValidIssueNumber =
-      typeof issueNumber === "number" && Number.isFinite(issueNumber) && issueNumber > 0;
+      typeof issueNumber === "number" &&
+      Number.isFinite(issueNumber) &&
+      issueNumber > 0;
 
     if (!issueText && !hasValidIssueNumber) {
       return {
@@ -405,10 +409,7 @@ function isMissingHeadError(error: unknown) {
   );
 }
 
-async function runDiffAgainstHead(
-  workspaceRoot: string,
-  diffArgs: string[],
-) {
+async function runDiffAgainstHead(workspaceRoot: string, diffArgs: string[]) {
   try {
     const { stdout } = await execFileAsync(
       "git",
@@ -477,20 +478,33 @@ function isGithubRemoteUrl(url: string) {
 }
 
 function buildGithubRemoteNames(parsedEntries: ParsedRemoteEntry[]) {
-  return [...new Set(parsedEntries.filter((entry) => isGithubRemoteUrl(entry.url)).map((entry) => entry.name))];
+  return [
+    ...new Set(
+      parsedEntries
+        .filter((entry) => isGithubRemoteUrl(entry.url))
+        .map((entry) => entry.name),
+    ),
+  ];
 }
 
 async function checkGhCliAvailability() {
   try {
-    const { stdout, stderr } = await execFileAsync(GH_CLI_EXECUTABLE, ["--version"], {
-      cwd: getWorkspaceRoot(),
-      maxBuffer: 1024 * 1024,
-      windowsHide: true,
-    });
+    const { stdout, stderr } = await execFileAsync(
+      GH_CLI_EXECUTABLE,
+      ["--version"],
+      {
+        cwd: getWorkspaceRoot(),
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
 
     return {
       available: true,
-      detail: trimDiffPreview([stdout.trim(), stderr.trim()].filter(Boolean).join("\n") || "gh CLI is available."),
+      detail: trimDiffPreview(
+        [stdout.trim(), stderr.trim()].filter(Boolean).join("\n") ||
+          "gh CLI is available.",
+      ),
     };
   } catch (error) {
     if (isCommandMissingError(error)) {
@@ -544,7 +558,10 @@ async function checkGhAuthStatus(ghCliAvailable: boolean) {
     );
 
     return {
-      detail: trimDiffPreview([stdout.trim(), stderr.trim()].filter(Boolean).join("\n") || "gh auth is ready."),
+      detail: trimDiffPreview(
+        [stdout.trim(), stderr.trim()].filter(Boolean).join("\n") ||
+          "gh auth is ready.",
+      ),
       status: "authenticated",
     };
   } catch (error) {
@@ -557,7 +574,9 @@ async function checkGhAuthStatus(ghCliAvailable: boolean) {
         .join("\n");
 
       return {
-        detail: trimDiffPreview(detail || "gh CLI is installed, but no GitHub login is active."),
+        detail: trimDiffPreview(
+          detail || "gh CLI is installed, but no GitHub login is active.",
+        ),
         status: "not_authenticated",
       };
     }
@@ -583,17 +602,19 @@ function summarizeGithubEnvironment(
   if (!isGitRepository) {
     parts.push("This workspace is not a Git repository yet.");
   } else if (remoteEntries.length === 0) {
-    parts.push("This workspace is a Git repository, but no remote is configured yet.");
+    parts.push(
+      "This workspace is a Git repository, but no remote is configured yet.",
+    );
   } else if (githubRemoteNames.length === 0) {
     parts.push("This workspace has remotes, but none of them point to GitHub.");
   } else {
-    parts.push(`This workspace already has a GitHub remote: ${githubRemoteNames.join(", ")}.`);
+    parts.push(
+      `This workspace already has a GitHub remote: ${githubRemoteNames.join(", ")}.`,
+    );
   }
 
   parts.push(
-    ghCliAvailable
-      ? "gh CLI is installed."
-      : "gh CLI is not installed.",
+    ghCliAvailable ? "gh CLI is installed." : "gh CLI is not installed.",
   );
 
   if (ghAuthStatus === "authenticated") {
@@ -707,7 +728,7 @@ function parseChangedPaths(statusEntries: string[]) {
     }
 
     const normalizedPath = rawPath.includes(" -> ")
-      ? rawPath.split(" -> ").at(-1)?.trim() ?? rawPath
+      ? (rawPath.split(" -> ").at(-1)?.trim() ?? rawPath)
       : rawPath;
 
     parsedPaths.push({
@@ -724,7 +745,9 @@ function buildCommitScope(paths: string[]) {
     return "workspace";
   }
 
-  const topLevels = [...new Set(paths.map((filePath) => filePath.split(/[\\/]/)[0] || filePath))];
+  const topLevels = [
+    ...new Set(paths.map((filePath) => filePath.split(/[\\/]/)[0] || filePath)),
+  ];
 
   if (topLevels.length === 1) {
     return topLevels[0];
@@ -862,7 +885,9 @@ function suggestTaskSubmitDraft(
 
   if (patchTruncated) {
     bodyLines.push("");
-    bodyLines.push("Note: Patch text was truncated to keep the tool output bounded.");
+    bodyLines.push(
+      "Note: Patch text was truncated to keep the tool output bounded.",
+    );
   }
 
   return bodyLines.join("\n");
@@ -929,7 +954,9 @@ function extractIssueTitleAndBody(issueText: string) {
 
   if (formattedIssueMatch) {
     return {
-      title: normalizeIssueSentence(formattedIssueMatch[1] ?? "") || "Untitled issue",
+      title:
+        normalizeIssueSentence(formattedIssueMatch[1] ?? "") ||
+        "Untitled issue",
       body: (formattedIssueMatch[2] ?? "").trim(),
     };
   }
@@ -957,11 +984,7 @@ function extractIssueTitleAndBody(issueText: string) {
   }
 
   const firstLine = nonEmptyLines[0]?.replace(/^#+\s*/, "") ?? "";
-  const remainingBody = normalizedText
-    .split("\n")
-    .slice(1)
-    .join("\n")
-    .trim();
+  const remainingBody = normalizedText.split("\n").slice(1).join("\n").trim();
 
   return {
     title: normalizeIssueSentence(firstLine) || "Untitled issue",
@@ -983,9 +1006,9 @@ function extractIssuePaths(issueText: string) {
 
 function extractIssueKeywords(title: string, body: string) {
   const combined = `${body}\n${title}`;
-  const quotedTokens = [...combined.matchAll(/["'`“”]([A-Za-z][A-Za-z0-9 _-]{1,40})["'`“”]/g)].map(
-    (match) => normalizeIssueSentence(match[1] ?? ""),
-  );
+  const quotedTokens = [
+    ...combined.matchAll(/["'`“”]([A-Za-z][A-Za-z0-9 _-]{1,40})["'`“”]/g),
+  ].map((match) => normalizeIssueSentence(match[1] ?? ""));
   const englishTokens = combined.match(/[A-Za-z][A-Za-z0-9_-]{3,}/g) ?? [];
   const chineseTokens = combined.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
   const stopWords = new Set([
@@ -1039,7 +1062,9 @@ function pickIssueGoal(title: string, body: string) {
     .map((line) => normalizeIssueSentence(line.replace(/^[-*]\s*/, "")))
     .find((line) => line.length > 0);
 
-  return firstBodyLine && firstBodyLine !== title ? `${title} - ${firstBodyLine}` : title;
+  return firstBodyLine && firstBodyLine !== title
+    ? `${title} - ${firstBodyLine}`
+    : title;
 }
 
 function buildIssuePlan(issueText: string) {
@@ -1326,18 +1351,19 @@ async function runSummaryAction(): Promise<ToolResult> {
 
   try {
     const repositoryRoot = await getRepositoryRoot(workspaceRoot);
-    const [{ stdout: statusStdout }, { stdout: diffStatStdout }] = await Promise.all([
-      execFileAsync("git", ["status", "--short", "--branch"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      }),
-      execFileAsync("git", ["diff", "--stat", "--"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      }),
-    ]);
+    const [{ stdout: statusStdout }, { stdout: diffStatStdout }] =
+      await Promise.all([
+        execFileAsync("git", ["status", "--short", "--branch"], {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }),
+        execFileAsync("git", ["diff", "--stat", "--"], {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }),
+      ]);
 
     const parsedStatus = parseGitStatusOutput(statusStdout);
     const diffStatLines = diffStatStdout
@@ -1365,7 +1391,9 @@ async function runSummaryAction(): Promise<ToolResult> {
               ? parsedStatus.statusEntries
               : ["clean working tree"],
           diffPreview:
-            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no unstaged diff stat",
+            diffStatLines.length > 0
+              ? diffStatLines.join("\n")
+              : "no unstaged diff stat",
           summaryText,
           workspaceRoot,
         }),
@@ -1383,7 +1411,8 @@ async function runSummaryAction(): Promise<ToolResult> {
               "The current workspace is not a Git repository yet, so a Git change summary is not available.",
             repositoryRoot: null,
             status: "success",
-            summaryText: "No Git summary is available because this workspace is not a Git repository yet.",
+            summaryText:
+              "No Git summary is available because this workspace is not a Git repository yet.",
             workspaceRoot,
           }),
         ),
@@ -1529,18 +1558,19 @@ async function runCommitMessageAction(): Promise<ToolResult> {
 
   try {
     const repositoryRoot = await getRepositoryRoot(workspaceRoot);
-    const [{ stdout: statusStdout }, { stdout: diffStatStdout }] = await Promise.all([
-      execFileAsync("git", ["status", "--short", "--branch"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      }),
-      execFileAsync("git", ["diff", "--stat", "--"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      }),
-    ]);
+    const [{ stdout: statusStdout }, { stdout: diffStatStdout }] =
+      await Promise.all([
+        execFileAsync("git", ["status", "--short", "--branch"], {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }),
+        execFileAsync("git", ["diff", "--stat", "--"], {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }),
+      ]);
 
     const parsedStatus = parseGitStatusOutput(statusStdout);
     const diffStatLines = diffStatStdout
@@ -1569,7 +1599,9 @@ async function runCommitMessageAction(): Promise<ToolResult> {
               ? parsedStatus.statusEntries
               : ["clean working tree"],
           diffPreview:
-            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no unstaged diff stat",
+            diffStatLines.length > 0
+              ? diffStatLines.join("\n")
+              : "no unstaged diff stat",
           workspaceRoot,
         }),
       ),
@@ -1619,18 +1651,19 @@ async function runPrDraftAction(): Promise<ToolResult> {
 
   try {
     const repositoryRoot = await getRepositoryRoot(workspaceRoot);
-    const [{ stdout: statusStdout }, { stdout: diffStatStdout }] = await Promise.all([
-      execFileAsync("git", ["status", "--short", "--branch"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      }),
-      execFileAsync("git", ["diff", "--stat", "--"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      }),
-    ]);
+    const [{ stdout: statusStdout }, { stdout: diffStatStdout }] =
+      await Promise.all([
+        execFileAsync("git", ["status", "--short", "--branch"], {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }),
+        execFileAsync("git", ["diff", "--stat", "--"], {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }),
+      ]);
 
     const parsedStatus = parseGitStatusOutput(statusStdout);
     const diffStatLines = diffStatStdout
@@ -1659,7 +1692,9 @@ async function runPrDraftAction(): Promise<ToolResult> {
               ? parsedStatus.statusEntries
               : ["clean working tree"],
           diffPreview:
-            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no unstaged diff stat",
+            diffStatLines.length > 0
+              ? diffStatLines.join("\n")
+              : "no unstaged diff stat",
           workspaceRoot,
         }),
       ),
@@ -1746,7 +1781,9 @@ async function runPatchExportAction(): Promise<ToolResult> {
           action: "patch_export",
           branch: parsedStatus.branch,
           diffPreview:
-            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no tracked diff stat",
+            diffStatLines.length > 0
+              ? diffStatLines.join("\n")
+              : "no tracked diff stat",
           isGitRepository: true,
           message: hasChanges
             ? patchExport.patchText
@@ -1778,7 +1815,8 @@ async function runPatchExportAction(): Promise<ToolResult> {
             isGitRepository: false,
             message:
               "Patch export is not available because the current workspace is not a Git repository yet.",
-            patchText: "No patch export is available because this workspace is not a Git repository yet.",
+            patchText:
+              "No patch export is available because this workspace is not a Git repository yet.",
             repositoryRoot: null,
             status: "success",
             workspaceRoot,
@@ -1829,7 +1867,9 @@ async function runTaskSubmitAction(): Promise<ToolResult> {
           action: "task_submit",
           branch: parsedStatus.branch,
           diffPreview:
-            diffStatLines.length > 0 ? diffStatLines.join("\n") : "no tracked diff stat",
+            diffStatLines.length > 0
+              ? diffStatLines.join("\n")
+              : "no tracked diff stat",
           isGitRepository: true,
           message:
             "task_submit draft created from local Git facts. This action only reads status and diff; it does not commit, push, or submit anything.",
@@ -1897,12 +1937,17 @@ async function runRepoInfoAction(): Promise<ToolResult> {
 
   try {
     const repositoryRoot = await getRepositoryRoot(workspaceRoot);
-    const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
-      cwd: workspaceRoot,
-      maxBuffer: 1024 * 1024,
-      windowsHide: true,
-    });
-    const { parsedEntries, remoteEntries } = parseGitRemoteEntries(remoteStdout);
+    const { stdout: remoteStdout } = await execFileAsync(
+      "git",
+      ["remote", "-v"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    const { parsedEntries, remoteEntries } =
+      parseGitRemoteEntries(remoteStdout);
     const githubRemoteNames = buildGithubRemoteNames(parsedEntries);
 
     if (!ghCli.available) {
@@ -1915,9 +1960,11 @@ async function runRepoInfoAction(): Promise<ToolResult> {
             ghCliAvailable: false,
             githubRemoteNames,
             isGitRepository: true,
-            message: "Repository info could not be loaded because gh CLI is not available.",
+            message:
+              "Repository info could not be loaded because gh CLI is not available.",
             remoteEntries,
-            repoInfo: "gh CLI is not installed, so GitHub repository info cannot be read here yet.",
+            repoInfo:
+              "gh CLI is not installed, so GitHub repository info cannot be read here yet.",
             repositoryRoot,
             status: "success",
             workspaceRoot,
@@ -1928,7 +1975,12 @@ async function runRepoInfoAction(): Promise<ToolResult> {
 
     const { stdout } = await execFileAsync(
       GH_CLI_EXECUTABLE,
-      ["repo", "view", "--json", "nameWithOwner,url,defaultBranchRef,description"],
+      [
+        "repo",
+        "view",
+        "--json",
+        "nameWithOwner,url,defaultBranchRef,description",
+      ],
       {
         cwd: workspaceRoot,
         maxBuffer: 1024 * 1024,
@@ -2023,12 +2075,17 @@ async function runIssueListAction(): Promise<ToolResult> {
 
   try {
     const repositoryRoot = await getRepositoryRoot(workspaceRoot);
-    const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
-      cwd: workspaceRoot,
-      maxBuffer: 1024 * 1024,
-      windowsHide: true,
-    });
-    const { parsedEntries, remoteEntries } = parseGitRemoteEntries(remoteStdout);
+    const { stdout: remoteStdout } = await execFileAsync(
+      "git",
+      ["remote", "-v"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    const { parsedEntries, remoteEntries } =
+      parseGitRemoteEntries(remoteStdout);
     const githubRemoteNames = buildGithubRemoteNames(parsedEntries);
 
     if (!ghCli.available) {
@@ -2041,8 +2098,10 @@ async function runIssueListAction(): Promise<ToolResult> {
             ghCliAvailable: false,
             githubRemoteNames,
             isGitRepository: true,
-            issueList: "gh CLI is not installed, so GitHub issues cannot be listed here yet.",
-            message: "Issue list is unavailable because gh CLI is not available.",
+            issueList:
+              "gh CLI is not installed, so GitHub issues cannot be listed here yet.",
+            message:
+              "Issue list is unavailable because gh CLI is not available.",
             remoteEntries,
             repositoryRoot,
             status: "success",
@@ -2062,8 +2121,10 @@ async function runIssueListAction(): Promise<ToolResult> {
             ghCliAvailable: ghCli.available,
             githubRemoteNames,
             isGitRepository: true,
-            issueList: "gh CLI is installed, but GitHub login is not active, so issues cannot be listed here yet.",
-            message: "Issue list is unavailable because GitHub login is not active.",
+            issueList:
+              "gh CLI is installed, but GitHub login is not active, so issues cannot be listed here yet.",
+            message:
+              "Issue list is unavailable because GitHub login is not active.",
             remoteEntries,
             repositoryRoot,
             status: "success",
@@ -2156,23 +2217,32 @@ async function runIssueListAction(): Promise<ToolResult> {
   }
 }
 
-async function runIssueDetailAction(input: ToolExecutionInput): Promise<ToolResult> {
+async function runIssueDetailAction(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const workspaceRoot = getWorkspaceRoot();
   const ghCli = await checkGhCliAvailability();
   const ghAuth = await checkGhAuthStatus(ghCli.available);
   const issueNumber =
-    typeof input === "string" ? null : typeof input.issue_number === "number"
-      ? input.issue_number
-      : null;
+    typeof input === "string"
+      ? null
+      : typeof input.issue_number === "number"
+        ? input.issue_number
+        : null;
 
   try {
     const repositoryRoot = await getRepositoryRoot(workspaceRoot);
-    const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
-      cwd: workspaceRoot,
-      maxBuffer: 1024 * 1024,
-      windowsHide: true,
-    });
-    const { parsedEntries, remoteEntries } = parseGitRemoteEntries(remoteStdout);
+    const { stdout: remoteStdout } = await execFileAsync(
+      "git",
+      ["remote", "-v"],
+      {
+        cwd: workspaceRoot,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    const { parsedEntries, remoteEntries } =
+      parseGitRemoteEntries(remoteStdout);
     const githubRemoteNames = buildGithubRemoteNames(parsedEntries);
 
     if (issueNumber === null || issueNumber <= 0) {
@@ -2187,7 +2257,8 @@ async function runIssueDetailAction(input: ToolExecutionInput): Promise<ToolResu
             isGitRepository: true,
             issueDetail:
               "Missing issue number. Please provide a specific issue number such as issue 3.",
-            message: "Issue detail is unavailable because no valid issue number was provided.",
+            message:
+              "Issue detail is unavailable because no valid issue number was provided.",
             remoteEntries,
             repositoryRoot,
             status: "rejected",
@@ -2207,8 +2278,10 @@ async function runIssueDetailAction(input: ToolExecutionInput): Promise<ToolResu
             ghCliAvailable: false,
             githubRemoteNames,
             isGitRepository: true,
-            issueDetail: "gh CLI is not installed, so GitHub issue detail cannot be read here yet.",
-            message: "Issue detail is unavailable because gh CLI is not available.",
+            issueDetail:
+              "gh CLI is not installed, so GitHub issue detail cannot be read here yet.",
+            message:
+              "Issue detail is unavailable because gh CLI is not available.",
             remoteEntries,
             repositoryRoot,
             status: "success",
@@ -2230,7 +2303,8 @@ async function runIssueDetailAction(input: ToolExecutionInput): Promise<ToolResu
             isGitRepository: true,
             issueDetail:
               "gh CLI is installed, but GitHub login is not active, so issue detail cannot be read here yet.",
-            message: "Issue detail is unavailable because GitHub login is not active.",
+            message:
+              "Issue detail is unavailable because GitHub login is not active.",
             remoteEntries,
             repositoryRoot,
             status: "success",
@@ -2330,16 +2404,24 @@ async function runIssueDetailAction(input: ToolExecutionInput): Promise<ToolResu
   }
 }
 
-async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult> {
+async function runIssuePlanAction(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const workspaceRoot = getWorkspaceRoot();
   const ghCli = await checkGhCliAvailability();
   const ghAuth = await checkGhAuthStatus(ghCli.available);
   const issueTextFromInput =
-    typeof input === "string" ? "" : typeof input.issue_text === "string" ? input.issue_text : "";
+    typeof input === "string"
+      ? ""
+      : typeof input.issue_text === "string"
+        ? input.issue_text
+        : "";
   const issueNumber =
-    typeof input === "string" ? null : typeof input.issue_number === "number"
-      ? input.issue_number
-      : null;
+    typeof input === "string"
+      ? null
+      : typeof input.issue_number === "number"
+        ? input.issue_number
+        : null;
 
   let issueText = issueTextFromInput.trim();
 
@@ -2372,11 +2454,15 @@ async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult
     isGitRepository = true;
 
     if (!issueText && issueNumber !== null && issueNumber > 0) {
-      const { stdout: remoteStdout } = await execFileAsync("git", ["remote", "-v"], {
-        cwd: workspaceRoot,
-        maxBuffer: 1024 * 1024,
-        windowsHide: true,
-      });
+      const { stdout: remoteStdout } = await execFileAsync(
+        "git",
+        ["remote", "-v"],
+        {
+          cwd: workspaceRoot,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        },
+      );
       const parsedRemotes = parseGitRemoteEntries(remoteStdout);
       remoteEntries = parsedRemotes.remoteEntries;
       githubRemoteNames = buildGithubRemoteNames(parsedRemotes.parsedEntries);
@@ -2393,7 +2479,8 @@ async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult
               isGitRepository: true,
               issuePlan:
                 "gh CLI is not installed, so issue number planning is not available yet. You can still paste the issue text directly into issue_text.",
-              message: "Issue planning from issue number is unavailable because gh CLI is not available.",
+              message:
+                "Issue planning from issue number is unavailable because gh CLI is not available.",
               remoteEntries,
               repositoryRoot,
               status: "success",
@@ -2476,28 +2563,30 @@ async function runIssuePlanAction(input: ToolExecutionInput): Promise<ToolResult
 
   return {
     ok: true,
-      content: formatGitInspectReport(
-        createGitInspectReport({
-          action: "issue_plan",
-          isGitRepository,
-          ghAuthStatus: ghAuth.status,
-          ghCliAvailable: ghCli.available,
-          githubRemoteNames,
-          issuePlan: buildStructuredIssuePlan(issueText),
-          message:
-            issueNumber !== null && issueNumber > 0
-              ? `Issue planning draft created successfully from GitHub issue #${issueNumber}.`
-              : "Issue planning draft created successfully from pasted issue text.",
-          remoteEntries,
-          repositoryRoot,
-          status: "success",
-          workspaceRoot,
+    content: formatGitInspectReport(
+      createGitInspectReport({
+        action: "issue_plan",
+        isGitRepository,
+        ghAuthStatus: ghAuth.status,
+        ghCliAvailable: ghCli.available,
+        githubRemoteNames,
+        issuePlan: buildStructuredIssuePlan(issueText),
+        message:
+          issueNumber !== null && issueNumber > 0
+            ? `Issue planning draft created successfully from GitHub issue #${issueNumber}.`
+            : "Issue planning draft created successfully from pasted issue text.",
+        remoteEntries,
+        repositoryRoot,
+        status: "success",
+        workspaceRoot,
       }),
     ),
   };
 }
 
-async function executeGitInspect(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeGitInspect(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const parsed = parseGitInspectInput(input);
 
   if (!parsed.ok) {
@@ -2594,26 +2683,4 @@ export const gitInspectTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeGitInspect,
-  onResult(_goal, result, toolRuns) {
-    const toolRun = toolRuns.at(-1);
-
-    if (
-      !toolRun ||
-      !result.ok ||
-      parseGitInspectAction(result.content) !== "issue_plan"
-    ) {
-      return null;
-    }
-
-    const issuePlan = extractIssuePlanFromGitInspectReport(result.content);
-
-    if (!issuePlan || deriveIssueInvestigationToolCallFromToolRun(toolRun)) {
-      return null;
-    }
-
-    return {
-      type: "immediate",
-      message: issuePlan,
-    };
-  },
 };

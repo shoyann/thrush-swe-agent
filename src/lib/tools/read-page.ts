@@ -6,7 +6,6 @@ import type {
 } from "@/lib/tools/types";
 import { launchPlaywrightChromium } from "@/lib/tools/playwright-browser";
 import { assertSafeUrl } from "@/lib/tools/url-guard";
-import { formatReadPageAnswer } from "@/lib/agent/page-result-format";
 
 const NAVIGATION_TIMEOUT_MS = 15_000;
 const MAX_TEXT_LENGTH = 2_000;
@@ -147,7 +146,9 @@ async function executeReadPage(input: ToolExecutionInput): Promise<ToolResult> {
   try {
     assertSafeUrl(parsed.url);
   } catch (error) {
-    console.warn("Blocked read_page request for unsafe URL.", { url: parsed.url });
+    console.warn("Blocked read_page request for unsafe URL.", {
+      url: parsed.url,
+    });
 
     return {
       ok: false,
@@ -167,7 +168,10 @@ async function executeReadPage(input: ToolExecutionInput): Promise<ToolResult> {
     });
 
     const title = (await page.title()).trim();
-    const visibleText = await page.locator("body").innerText().catch(() => "");
+    const visibleText = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "");
 
     return {
       ok: true,
@@ -209,21 +213,4 @@ export const readPageTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeReadPage,
-  onResult(goal, result) {
-    if (!result.ok) {
-      return {
-        type: "immediate",
-        message: result.content,
-      };
-    }
-
-    const formattedReadPageAnswer = formatReadPageAnswer(goal, result.content);
-
-    return formattedReadPageAnswer
-      ? {
-          type: "immediate",
-          message: formattedReadPageAnswer,
-        }
-      : null;
-  },
 };

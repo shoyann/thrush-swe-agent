@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { activity } from "@/lib/runtime/activity";
 import { getSession } from "@/lib/db/store";
 
 export const runtime = "nodejs";
@@ -17,5 +18,10 @@ export async function GET(
     );
   }
 
-  return NextResponse.json({ session });
+  return NextResponse.json({
+    session: {
+      ...session,
+      isRunning: activity.sessions?.has(sessionId) ?? false,
+    },
+  });
 }

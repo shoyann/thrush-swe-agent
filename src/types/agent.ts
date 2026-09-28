@@ -1,3 +1,5 @@
+import type { WorkflowState } from "../lib/agent/workflow";
+
 export type Role = "user" | "assistant";
 
 export type ChatMessage = {
@@ -11,6 +13,7 @@ export type PendingDraftSnapshot = {
   content: string;
   id: string;
   kind: "write_file";
+  baseHash?: string | null;
   path: string;
 };
 
@@ -23,6 +26,7 @@ export type PendingWorkspaceSwitch = {
 };
 
 export type AgentSessionContext = {
+  workflow?: WorkflowState | null;
   autoApprove?: boolean;
   conversationSummary?: string | null;
   lastListedDirectoryPath?: string | null;
@@ -62,6 +66,7 @@ export type AgentResponse = {
 };
 
 export type AgentStreamEvent =
+  | { type: "workflow"; workflow: WorkflowState | null }
   | {
       type: "steps";
       steps: AgentStep[];

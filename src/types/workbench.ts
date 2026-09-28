@@ -24,6 +24,7 @@ export type SessionSummary = {
 };
 
 export type SessionDetail = SessionSummary & {
+  isRunning?: boolean;
   messages: ChatMessage[];
   sessionContext: AgentSessionContext;
   steps: AgentStep[];

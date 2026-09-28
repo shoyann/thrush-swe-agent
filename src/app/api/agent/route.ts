@@ -20,7 +20,9 @@ import { activity } from "@/lib/runtime/activity";
 const encoder = new TextEncoder();
 export const runtime = "nodejs";
 
-function serializeStreamEvent(event: AgentStreamEvent | { type: "error"; message: string }) {
+function serializeStreamEvent(
+  event: AgentStreamEvent | { type: "error"; message: string },
+) {
   return encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
 }
 
@@ -51,11 +53,12 @@ export async function POST(request: Request) {
 
   const origin = request.headers.get("origin");
   const requestUrl = new URL(request.url);
-  const browserDevelopment = process.env.NODE_ENV === "development"
-    && process.env.THRUSH_DESKTOP !== "1"
-    && ["localhost", "127.0.0.1", "[::1]"].includes(requestUrl.hostname)
-    && origin === requestUrl.origin
-    && request.headers.get("sec-fetch-site") === "same-origin";
+  const browserDevelopment =
+    process.env.NODE_ENV === "development" &&
+    process.env.THRUSH_DESKTOP !== "1" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(requestUrl.hostname) &&
+    origin === requestUrl.origin &&
+    request.headers.get("sec-fetch-site") === "same-origin";
   if (!agentApiSecret && !browserDevelopment) {
     console.warn(
       "AGENT_API_SECRET is not set. Rejecting /api/agent requests until server-side auth is configured.",
@@ -85,13 +88,14 @@ export async function POST(request: Request) {
     );
   }
 
-  if (activity.stopping) return NextResponse.json({ error: "Application is shutting down." }, { status: 503 });
+  if (activity.stopping)
+    return NextResponse.json(
+      { error: "Application is shutting down." },
+      { status: 503 },
+    );
   const task = typeof body.task === "string" ? body.task.trim() : "";
   if (!task) {
-    return NextResponse.json(
-      { error: "Task is required." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Task is required." }, { status: 400 });
   }
 
   const sessionId = body.sessionId?.trim();
@@ -102,171 +106,202 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionProject = getSessionProject(sessionId);
-  if (!sessionProject) {
+  // No await between acquisition and reading state; concurrent requests cannot reuse stale drafts.
+  activity.sessions ??= new Set<string>();
+  if (activity.sessions.has(sessionId))
     return NextResponse.json(
-      { error: "Session was not found." },
-      { status: 404 },
+      { error: "This session is already running." },
+      { status: 409 },
     );
-  }
+  activity.sessions.add(sessionId);
+  let streaming = false;
+  try {
+    const sessionProject = getSessionProject(sessionId);
+    if (!sessionProject) {
+      return NextResponse.json(
+        { error: "Session was not found." },
+        { status: 404 },
+      );
+    }
 
-  const { project, session } = sessionProject;
-  const userMessage = appendMessage({
-    content: task,
-    role: "user",
-    sessionId,
-  });
-  const messagesForAgent = [...session.messages, userMessage];
-  const sessionContext = {
-    ...session.sessionContext,
-    projectId: project.id,
-    sessionId,
-  };
-  const workspaceSwitchResult = handleWorkspaceSwitchTask({
-    projectId: project.id,
-    projectWorkspacePath: project.workspacePath,
-    sessionContext,
-    sessionId,
-    task,
-  });
-
-  if (workspaceSwitchResult.handled) {
-    const assistantMessage = appendMessage({
-      content: workspaceSwitchResult.message,
-      role: "assistant",
+    const { project, session } = sessionProject;
+    const userMessage = appendMessage({
+      content: task,
+      role: "user",
       sessionId,
     });
-
-    updateSessionState(
+    const messagesForAgent = [...session.messages, userMessage];
+    const sessionContext = {
+      ...session.sessionContext,
+      projectId: project.id,
       sessionId,
-      workspaceSwitchResult.sessionContext,
-      workspaceSwitchResult.steps,
+    };
+    const workspaceSwitchResult = handleWorkspaceSwitchTask({
+      projectId: project.id,
+      projectWorkspacePath: project.workspacePath,
+      sessionContext,
+      sessionId,
+      task,
+    });
+
+    if (workspaceSwitchResult.handled) {
+      const assistantMessage = appendMessage({
+        content: workspaceSwitchResult.message,
+        role: "assistant",
+        sessionId,
+      });
+
+      updateSessionState(
+        sessionId,
+        workspaceSwitchResult.sessionContext,
+        workspaceSwitchResult.steps,
+      );
+      createCheckpoint({
+        data: {
+          task,
+          sessionContext: workspaceSwitchResult.sessionContext,
+          steps: workspaceSwitchResult.steps,
+        },
+        kind: "workspace_switch_handled",
+        requestId,
+        sessionId,
+      });
+
+      const result = {
+        message: assistantMessage,
+        sessionContext: workspaceSwitchResult.sessionContext,
+        steps: workspaceSwitchResult.steps,
+      };
+
+      if (body.stream) {
+        return createImmediateStream([
+          { type: "steps", steps: result.steps },
+          { type: "message", message: result.message },
+          { type: "done", sessionContext: result.sessionContext },
+        ]);
+      }
+
+      return NextResponse.json(result);
+    }
+
+    const effectiveWorkspacePath = getEffectiveWorkspacePath(
+      sessionContext,
+      project.workspacePath,
     );
+
     createCheckpoint({
       data: {
         task,
-        sessionContext: workspaceSwitchResult.sessionContext,
-        steps: workspaceSwitchResult.steps,
+        projectId: project.id,
+        workspacePath: effectiveWorkspacePath,
       },
-      kind: "workspace_switch_handled",
+      kind: "agent_started",
       requestId,
       sessionId,
     });
 
-    const result = {
-      message: assistantMessage,
-      sessionContext: workspaceSwitchResult.sessionContext,
-      steps: workspaceSwitchResult.steps,
-    };
-
+    activity.requests.add(requestId);
     if (body.stream) {
-      return createImmediateStream([
-        { type: "steps", steps: result.steps },
-        { type: "message", message: result.message },
-        { type: "done", sessionContext: result.sessionContext },
-      ]);
+      streaming = true;
+      let closed = false;
+      const abort = new AbortController();
+      const signal = AbortSignal.any([request.signal, abort.signal]);
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          try {
+            const result = await withWorkspaceRoot(effectiveWorkspacePath, () =>
+              runAgent(task, messagesForAgent, sessionContext, requestId, {
+                signal,
+                onCheckpoint(context, steps) {
+                  updateSessionState(sessionId, context, steps);
+                },
+                onEvent(event) {
+                  if (!closed) controller.enqueue(serializeStreamEvent(event));
+                },
+                onToolRun(toolRun) {
+                  recordToolRun({
+                    requestId,
+                    sessionId,
+                    toolRun,
+                  });
+                  createCheckpoint({
+                    data: toolRun,
+                    kind: "tool_completed",
+                    requestId,
+                    sessionId,
+                  });
+                },
+                projectId: project.id,
+                sessionId,
+                workspaceRoot: effectiveWorkspacePath,
+              }),
+            );
+
+            appendMessage({
+              content: result.message.content,
+              reasoningContent: result.message.reasoning_content ?? null,
+              role: "assistant",
+              sessionId,
+            });
+            updateSessionState(sessionId, result.sessionContext, result.steps);
+            createCheckpoint({
+              data: {
+                sessionContext: result.sessionContext,
+                steps: result.steps,
+              },
+              kind: "agent_finished",
+              requestId,
+              sessionId,
+            });
+            logger.info("agent request completed", {
+              durationMs: Date.now() - startTime,
+            });
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "The agent request failed.";
+
+            logger.error("agent request failed", { error: message });
+
+            if (!closed)
+              controller.enqueue(
+                serializeStreamEvent({
+                  type: "error",
+                  message,
+                }),
+              );
+          } finally {
+            activity.requests.delete(requestId);
+            activity.sessions.delete(sessionId);
+            if (!closed) {
+              closed = true;
+              controller.close();
+            }
+          }
+        },
+        cancel() {
+          closed = true;
+          abort.abort();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "Content-Type": "text/event-stream; charset=utf-8",
+        },
+      });
     }
 
-    return NextResponse.json(result);
-  }
-
-  const effectiveWorkspacePath = getEffectiveWorkspacePath(
-    sessionContext,
-    project.workspacePath,
-  );
-
-  createCheckpoint({
-    data: {
-      task,
-      projectId: project.id,
-      workspacePath: effectiveWorkspacePath,
-    },
-    kind: "agent_started",
-    requestId,
-    sessionId,
-  });
-
-  activity.requests.add(requestId);
-  if (body.stream) {
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          const result = await withWorkspaceRoot(effectiveWorkspacePath, () =>
-            runAgent(task, messagesForAgent, sessionContext, requestId, {
-              onEvent(event) {
-                controller.enqueue(serializeStreamEvent(event));
-              },
-              onToolRun(toolRun) {
-                recordToolRun({
-                  requestId,
-                  sessionId,
-                  toolRun,
-                });
-                createCheckpoint({
-                  data: toolRun,
-                  kind: "tool_completed",
-                  requestId,
-                  sessionId,
-                });
-              },
-              projectId: project.id,
-              sessionId,
-              workspaceRoot: effectiveWorkspacePath,
-            }),
-          );
-
-          appendMessage({
-            content: result.message.content,
-            reasoningContent: result.message.reasoning_content ?? null,
-            role: "assistant",
-            sessionId,
-          });
-          updateSessionState(sessionId, result.sessionContext, result.steps);
-          createCheckpoint({
-            data: {
-              sessionContext: result.sessionContext,
-              steps: result.steps,
-            },
-            kind: "agent_finished",
-            requestId,
-            sessionId,
-          });
-          logger.info("agent request completed", {
-            durationMs: Date.now() - startTime,
-          });
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "The agent request failed.";
-
-          logger.error("agent request failed", { error: message });
-
-          controller.enqueue(
-            serializeStreamEvent({
-              type: "error",
-              message,
-            }),
-          );
-        } finally {
-          activity.requests.delete(requestId);
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "Content-Type": "text/event-stream; charset=utf-8",
-      },
-    });
-  }
-
-  try {
-    const result = await withWorkspaceRoot(
-      effectiveWorkspacePath,
-      () =>
+    try {
+      const result = await withWorkspaceRoot(effectiveWorkspacePath, () =>
         runAgent(task, messagesForAgent, sessionContext, requestId, {
+          signal: request.signal,
+          onCheckpoint(context, steps) {
+            updateSessionState(sessionId, context, steps);
+          },
           onToolRun(toolRun) {
             recordToolRun({
               requestId,
@@ -278,35 +313,38 @@ export async function POST(request: Request) {
           sessionId,
           workspaceRoot: effectiveWorkspacePath,
         }),
-    );
-    appendMessage({
-      content: result.message.content,
-      reasoningContent: result.message.reasoning_content ?? null,
-      role: "assistant",
-      sessionId,
-    });
-    updateSessionState(sessionId, result.sessionContext, result.steps);
-    createCheckpoint({
-      data: {
-        sessionContext: result.sessionContext,
-        steps: result.steps,
-      },
-      kind: "agent_finished",
-      requestId,
-      sessionId,
-    });
-    logger.info("agent request completed", {
-      durationMs: Date.now() - startTime,
-    });
-    return NextResponse.json(result);
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "The agent request failed.";
+      );
+      appendMessage({
+        content: result.message.content,
+        reasoningContent: result.message.reasoning_content ?? null,
+        role: "assistant",
+        sessionId,
+      });
+      updateSessionState(sessionId, result.sessionContext, result.steps);
+      createCheckpoint({
+        data: {
+          sessionContext: result.sessionContext,
+          steps: result.steps,
+        },
+        kind: "agent_finished",
+        requestId,
+        sessionId,
+      });
+      logger.info("agent request completed", {
+        durationMs: Date.now() - startTime,
+      });
+      return NextResponse.json(result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The agent request failed.";
 
-    logger.error("agent request failed", { error: message });
+      logger.error("agent request failed", { error: message });
 
-    return NextResponse.json({ error: message }, { status: 500 });
+      return NextResponse.json({ error: message }, { status: 500 });
+    } finally {
+      activity.requests.delete(requestId);
+    }
   } finally {
-    activity.requests.delete(requestId);
+    if (!streaming) activity.sessions.delete(sessionId);
   }
 }

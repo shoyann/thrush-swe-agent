@@ -1,3 +1,4 @@
+import { normalizeWorkflow } from "./workflow";
 import type { AgentSessionContext, ChatMessage } from "@/types/agent";
 import { callModelForText } from "@/lib/agent/model-client";
 
@@ -5,7 +6,10 @@ export const MAX_CONTEXT_MESSAGES = 8;
 
 const MAX_CONVERSATION_SUMMARY_CHARS = 1600;
 
-function normalizeConversationMessages(messages: ChatMessage[] | undefined, task: string) {
+function normalizeConversationMessages(
+  messages: ChatMessage[] | undefined,
+  task: string,
+) {
   if (!messages?.length) {
     return [];
   }
@@ -41,9 +45,11 @@ export function normalizeSessionContext(
   }
 
   return {
+    workflow: normalizeWorkflow(sessionContext.workflow),
     autoApprove: sessionContext.autoApprove === true,
     conversationSummary: sessionContext.conversationSummary?.trim() || null,
-    lastListedDirectoryPath: sessionContext.lastListedDirectoryPath?.trim() || null,
+    lastListedDirectoryPath:
+      sessionContext.lastListedDirectoryPath?.trim() || null,
     lastReadFilePath: sessionContext.lastReadFilePath?.trim() || null,
     lastToolInput: sessionContext.lastToolInput?.trim() || null,
     lastToolName: sessionContext.lastToolName?.trim() || null,
@@ -63,7 +69,8 @@ export function normalizeSessionContext(
       ? {
           ...sessionContext.pendingWorkspaceSwitch,
           id: sessionContext.pendingWorkspaceSwitch.id.trim(),
-          originalTask: sessionContext.pendingWorkspaceSwitch.originalTask.trim(),
+          originalTask:
+            sessionContext.pendingWorkspaceSwitch.originalTask.trim(),
           readOnly: sessionContext.pendingWorkspaceSwitch.readOnly === true,
           workspacePath:
             sessionContext.pendingWorkspaceSwitch.workspacePath.trim(),
@@ -82,8 +89,13 @@ export function formatConversationForModel(messages: ChatMessage[]) {
     .join("\n\n");
 }
 
-export function formatConversationSummaryForModel(sessionContext: AgentSessionContext) {
-  return sessionContext.conversationSummary?.trim() || "No older conversation summary.";
+export function formatConversationSummaryForModel(
+  sessionContext: AgentSessionContext,
+) {
+  return (
+    sessionContext.conversationSummary?.trim() ||
+    "No older conversation summary."
+  );
 }
 
 function trimConversationSummary(summary: string) {

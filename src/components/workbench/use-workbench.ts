@@ -64,6 +64,25 @@ export function useWorkbench() {
     return () => controller.abort();
   }, [sessionId, refresh]);
   useEffect(() => {
+    if (!sessionId || busy || !session?.isRunning) return;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      request<{ session: SessionDetail }>(`/api/sessions/${sessionId}`, {
+        signal: controller.signal,
+      })
+        .then((p) => {
+          if (!controller.signal.aborted) setSession(p.session);
+        })
+        .catch((e) => {
+          if (!controller.signal.aborted) setError(errorText(e));
+        });
+    }, 2000);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [sessionId, busy, session?.isRunning]);
+  useEffect(() => {
     setRuns([]);
     setRunId(null);
     setDetail(null);
@@ -235,6 +254,11 @@ export function useWorkbench() {
           if (event.type === "message")
             return { ...s, messages: [...s.messages, event.message] };
           if (event.type === "steps") return { ...s, steps: event.steps };
+          if (event.type === "workflow")
+            return {
+              ...s,
+              sessionContext: { ...s.sessionContext, workflow: event.workflow },
+            };
           if (event.type === "done")
             return { ...s, sessionContext: event.sessionContext };
           return s;

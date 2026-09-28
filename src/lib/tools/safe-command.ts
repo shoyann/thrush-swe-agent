@@ -114,23 +114,10 @@ function parseArgTags(text: string) {
     .filter((value) => value.length > 0);
 }
 
-function getStringArg(args: ToolCallArgs, key: string) {
-  const value = args[key];
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function getStringArrayArg(args: ToolCallArgs, key: string) {
-  const value = args[key];
-
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((item): item is string => typeof item === "string");
-}
-
 function normalizeRelativePath(targetPath: string) {
-  return path.relative(getWorkspaceRoot(), targetPath).replace(/\\/g, "/") || ".";
+  return (
+    path.relative(getWorkspaceRoot(), targetPath).replace(/\\/g, "/") || "."
+  );
 }
 
 function trimOutput(text: string) {
@@ -163,7 +150,9 @@ function isAllowedCommand(command: string): command is SafeExecutable {
 function parseSafeCommandObjectInput(input: ToolCallArgs) {
   const command = typeof input.command === "string" ? input.command.trim() : "";
   const rawArgs = Array.isArray(input.args) ? input.args : [];
-  const args = rawArgs.filter((value): value is string => typeof value === "string");
+  const args = rawArgs.filter(
+    (value): value is string => typeof value === "string",
+  );
 
   if (!command) {
     return {
@@ -203,7 +192,7 @@ function buildAllowedRgCall(args: string[]): SafeCommandPlan {
     return {
       ok: false,
       message:
-        'safe_command currently allows only rg search or rg --files. Example: <command>rg</command><arg>TODO</arg><arg>src</arg>.',
+        "safe_command currently allows only rg search or rg --files. Example: <command>rg</command><arg>TODO</arg><arg>src</arg>.",
     } as const;
   }
 
@@ -302,7 +291,10 @@ function detectPackageManager(): PackageManager | null {
     return "yarn";
   }
 
-  if (workspaceHasFile("package-lock.json") || workspaceHasFile("package.json")) {
+  if (
+    workspaceHasFile("package-lock.json") ||
+    workspaceHasFile("package.json")
+  ) {
     return "npm";
   }
 
@@ -416,7 +408,8 @@ function buildAllowedCargoCall(args: string[]): SafeCommandPlan {
 
   return {
     ok: false,
-    message: "safe_command allows only cargo build, cargo test, or cargo clippy.",
+    message:
+      "safe_command allows only cargo build, cargo test, or cargo clippy.",
   };
 }
 
@@ -519,24 +512,10 @@ function parseSafeCommandInput(input: ToolExecutionInput) {
   return parseSafeCommandObjectInput(input);
 }
 
-function isVerificationSafeCommandInput(input: ToolExecutionInput) {
-  if (typeof input === "string") {
-    return false;
-  }
-
-  const command = getStringArg(input, "command").toLowerCase();
-  const args = getStringArrayArg(input, "args");
-
-  if (command === "git" && args.length === 1 && args[0] === "status") {
-    return true;
-  }
-
-  return PACKAGE_MANAGERS.has(command as PackageManager)
-    ? getPackageScriptFromArgs(command as PackageManager, args) !== null
-    : false;
-}
-
-async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeSafeCommand(
+  input: ToolExecutionInput,
+  options: { signal?: AbortSignal } = {},
+): Promise<ToolResult> {
   const parsed = parseSafeCommandInput(input);
 
   if (!parsed.ok) {
@@ -609,11 +588,18 @@ async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult
         cwd: getWorkspaceRoot(),
         maxBuffer: 1024 * 1024,
         windowsHide: true,
+        timeout: 120_000,
+        signal: options.signal,
       },
     );
 
     return {
       ok: true,
+      command: {
+        text: [parsed.command, ...parsed.args].join(" "),
+        exitCode: 0,
+        verification: !["git", "rg"].includes(parsed.command),
+      },
       content: formatSafeCommandReport({
         commandText: allowedCall.commandText,
         exitCode: 0,
@@ -650,10 +636,17 @@ async function executeSafeCommand(input: ToolExecutionInput): Promise<ToolResult
 
     return {
       ok: false,
+      command: {
+        text: [parsed.command, ...parsed.args].join(" "),
+        exitCode: result.code ?? null,
+        verification: !["git", "rg"].includes(parsed.command),
+      },
       content: formatSafeCommandReport({
         commandText: allowedCall.commandText,
         exitCode: result.code ?? null,
-        message: result.message || "safe_command failed while running the allowed command.",
+        message:
+          result.message ||
+          "safe_command failed while running the allowed command.",
         status: "failed",
         stderr: stderr || result.message || "",
         stdout,
@@ -686,18 +679,6 @@ export const safeCommandTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeSafeCommand,
-  onResult(_goal, result, toolRuns) {
-    const toolRun = toolRuns.at(-1);
-
-    if (!toolRun || !isVerificationSafeCommandInput(toolRun.input)) {
-      return null;
-    }
-
-    return {
-      type: "immediate",
-      message: result.content,
-    };
-  },
 };
 
 export const __safeCommandTestInternals = {

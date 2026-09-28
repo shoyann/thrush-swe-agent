@@ -6,6 +6,7 @@ export function formatSessionContextForModel(
   sessionContext: AgentSessionContext,
 ) {
   const lines = [
+    `Durable task state (authoritative over conversation summaries): ${JSON.stringify(sessionContext.workflow ?? null)}`,
     `Read-only mode: ${sessionContext.readOnly ? "on" : "off"}`,
     `Last tool name: ${sessionContext.lastToolName ?? "none"}`,
     `Last tool input: ${sessionContext.lastToolInput ?? "none"}`,
@@ -23,7 +24,9 @@ export function formatSessionContextForModel(
   }
 
   if (sessionContext.pendingWorkspaceSwitch) {
-    lines.push(`Pending workspace switch id: ${sessionContext.pendingWorkspaceSwitch.id}`);
+    lines.push(
+      `Pending workspace switch id: ${sessionContext.pendingWorkspaceSwitch.id}`,
+    );
     lines.push(
       `Pending workspace switch path: ${sessionContext.pendingWorkspaceSwitch.workspacePath}`,
     );
@@ -32,7 +35,7 @@ export function formatSessionContextForModel(
   }
 
   lines.push(
-    "Reference rules: if the user says 'that draft', prefer the pending draft. If the user says 'that file', prefer the pending draft path first, then the last read file. If the user says 'continue the last step', prefer continuing the pending draft flow; otherwise use the last tool context.",
+    "Reference rules: if the user says 'that draft', prefer the pending draft. If the user says 'that file', prefer the pending draft path first, then the last read file. For continuation always use the durable task objective and journal; never replace the objective with just the last tool.",
   );
 
   return lines.join("\n");
@@ -50,11 +53,11 @@ export function buildNextSessionContext(
     nextContext.lastToolName = toolRun.name;
     nextContext.lastToolInput = toolRun.inputText;
 
-    if (toolRun.name === "list_files") {
+    if (toolRun.result.ok && toolRun.name === "list_files") {
       nextContext.lastListedDirectoryPath = getToolPathReference(toolRun.input);
     }
 
-    if (toolRun.name === "read_file") {
+    if (toolRun.result.ok && toolRun.name === "read_file") {
       nextContext.lastReadFilePath = getToolPathReference(toolRun.input);
     }
 

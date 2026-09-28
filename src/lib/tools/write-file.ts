@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileHash } from "./pending-write";
 import type {
   AgentTool,
   ToolCallArgs,
@@ -6,7 +7,10 @@ import type {
   ToolResult,
   WriteFileDraft,
 } from "@/lib/tools/types";
-import { getWorkspaceRoot, resolveWorkspacePath } from "@/lib/tools/workspace-path";
+import {
+  getWorkspaceRoot,
+  resolveWorkspacePath,
+} from "@/lib/tools/workspace-path";
 
 function createDraftId() {
   return `draft-${Date.now()}`;
@@ -55,7 +59,7 @@ function parseWriteFileStringInput(input: string) {
   if (!filePath) {
     return {
       ok: false,
-      message: 'write_file input must include <path>relative/file.txt</path>.',
+      message: "write_file input must include <path>relative/file.txt</path>.",
     } as const;
   }
 
@@ -74,7 +78,8 @@ function parseWriteFileStringInput(input: string) {
 }
 
 function formatDraftContent(draft: WriteFileDraft) {
-  const proposedContent = draft.content.length > 0 ? draft.content : "(empty file)";
+  const proposedContent =
+    draft.content.length > 0 ? draft.content : "(empty file)";
 
   return [
     "Write file draft only. Nothing was written to disk.",
@@ -96,7 +101,9 @@ function parseWriteFileInput(input: ToolExecutionInput) {
   return parseWriteFileObjectInput(input);
 }
 
-async function executeWriteFile(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeWriteFile(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const parsed = parseWriteFileInput(input);
 
   if (!parsed.ok) {
@@ -116,6 +123,7 @@ async function executeWriteFile(input: ToolExecutionInput): Promise<ToolResult> 
       kind: "write_file",
       path: relativePath,
       content: parsed.fileContent,
+      baseHash: await readFileHash(targetPath),
     };
 
     return {
@@ -157,12 +165,4 @@ export const writeFileTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeWriteFile,
-  onResult(_goal, result) {
-    return result.draft
-      ? {
-          type: "immediate",
-          message: result.content,
-        }
-      : null;
-  },
 };

@@ -6,7 +6,10 @@ import type {
   ToolInputValue,
   ToolResult,
 } from "@/lib/tools/types";
-import { getWorkspaceRoot, resolveWorkspacePath } from "@/lib/tools/workspace-path";
+import {
+  getWorkspaceRoot,
+  resolveWorkspacePath,
+} from "@/lib/tools/workspace-path";
 
 const DEFAULT_MAX_DEPTH = 3;
 const MAX_NODES = 200;
@@ -59,7 +62,8 @@ function parseTreeFilesInput(input: ToolExecutionInput): ParsedTreeFilesInput {
   const requestedIgnore = parseStringArray(input.ignore);
 
   return {
-    ignore: requestedIgnore.length > 0 ? requestedIgnore : DEFAULT_IGNORED_NAMES,
+    ignore:
+      requestedIgnore.length > 0 ? requestedIgnore : DEFAULT_IGNORED_NAMES,
     maxDepth: parseMaxDepth(input.max_depth),
     path: requestedPath,
   };
@@ -136,7 +140,9 @@ async function buildTree(
   return node;
 }
 
-async function executeTreeFiles(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeTreeFiles(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   try {
     const parsedInput = parseTreeFilesInput(input);
     const targetPath = resolveWorkspacePath(parsedInput.path);
@@ -172,6 +178,9 @@ async function executeTreeFiles(input: ToolExecutionInput): Promise<ToolResult> 
       content: JSON.stringify(
         {
           root: rootNode,
+          workspace_relative_path: relativePath,
+          path_hint:
+            "All tool paths are relative to workspace root. Do not prepend the root directory name.",
           truncated: state.truncated,
           ...(state.truncated
             ? {
@@ -185,7 +194,9 @@ async function executeTreeFiles(input: ToolExecutionInput): Promise<ToolResult> 
     };
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "The file tree could not be listed.";
+      error instanceof Error
+        ? error.message
+        : "The file tree could not be listed.";
 
     return {
       ok: false,

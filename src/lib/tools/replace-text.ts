@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { hashContent } from "./pending-write";
 import type {
   AgentTool,
   ToolCallArgs,
@@ -7,7 +8,10 @@ import type {
   ToolResult,
   WriteFileDraft,
 } from "@/lib/tools/types";
-import { getWorkspaceRoot, resolveWorkspacePath } from "@/lib/tools/workspace-path";
+import {
+  getWorkspaceRoot,
+  resolveWorkspacePath,
+} from "@/lib/tools/workspace-path";
 
 function createDraftId() {
   return `draft-${Date.now()}`;
@@ -66,7 +70,8 @@ function parseReplaceTextStringInput(input: string) {
   if (!filePath) {
     return {
       ok: false,
-      message: 'replace_text input must include <path>relative/file.txt</path>.',
+      message:
+        "replace_text input must include <path>relative/file.txt</path>.",
     } as const;
   }
 
@@ -121,7 +126,8 @@ function formatDraftContent(
   oldText: string,
   newText: string,
 ) {
-  const proposedContent = draft.content.length > 0 ? draft.content : "(empty file)";
+  const proposedContent =
+    draft.content.length > 0 ? draft.content : "(empty file)";
 
   return [
     "Replace text draft only. Nothing was written to disk.",
@@ -139,7 +145,9 @@ function formatDraftContent(
   ].join("\n");
 }
 
-async function executeReplaceText(input: ToolExecutionInput): Promise<ToolResult> {
+async function executeReplaceText(
+  input: ToolExecutionInput,
+): Promise<ToolResult> {
   const parsed = parseReplaceTextInput(input);
 
   if (!parsed.ok) {
@@ -174,7 +182,10 @@ async function executeReplaceText(input: ToolExecutionInput): Promise<ToolResult
       };
     }
 
-    const updatedContent = originalContent.replace(parsed.oldText, parsed.newText);
+    const updatedContent = originalContent.replace(
+      parsed.oldText,
+      parsed.newText,
+    );
     const relativePath =
       path.relative(getWorkspaceRoot(), targetPath).replace(/\\/g, "/") || ".";
 
@@ -183,6 +194,7 @@ async function executeReplaceText(input: ToolExecutionInput): Promise<ToolResult
       kind: "write_file",
       path: relativePath,
       content: updatedContent,
+      baseHash: hashContent(originalContent),
     };
 
     return {
@@ -230,12 +242,4 @@ export const replaceTextTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeReplaceText,
-  onResult(_goal, result) {
-    return result.draft
-      ? {
-          type: "immediate",
-          message: result.content,
-        }
-      : null;
-  },
 };

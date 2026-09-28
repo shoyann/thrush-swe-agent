@@ -11,9 +11,13 @@ import { webSearchTool } from "@/lib/tools/web-search";
 import { writeFileTool } from "@/lib/tools/write-file";
 import type { AgentTool } from "@/lib/tools/types";
 
+import { taskPlanTool, finishTaskTool } from "./task-control";
+
 const readOnlyBlockedToolNames = new Set(["write_file", "replace_text"]);
 
 const tools: AgentTool[] = [
+  taskPlanTool,
+  finishTaskTool,
   clickPageTool,
   gitInspectTool,
   listFilesTool,

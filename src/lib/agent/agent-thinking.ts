@@ -4,16 +4,12 @@ import type {
   ChatMessage,
 } from "@/types/agent";
 import { listTools } from "@/lib/tools/tool-registry";
-import type {
-  ToolCallArgs,
-  ToolExecutionInput,
-} from "@/lib/tools/types";
+import type { ToolCallArgs, ToolExecutionInput } from "@/lib/tools/types";
 import {
   formatConversationForModel,
   formatConversationSummaryForModel,
 } from "@/lib/agent/conversation-context";
 import {
-  callModelForText,
   callModelForToolDecision,
   type LlmMessage,
 } from "@/lib/agent/model-client";
@@ -23,30 +19,14 @@ import {
   getStringArg,
   getStringArrayArg,
   formatToolExecutionInput,
-  formatToolRunsForModel,
 } from "@/lib/agent/tool-args";
-import {
-  MAX_TOOL_CALLS,
-  type ToolRun,
-} from "@/lib/agent/tool-run-types";
+import { MAX_TOOL_CALLS, type ToolRun } from "@/lib/agent/tool-run-types";
 import { formatSessionContextForModel } from "@/lib/agent/session-state";
 import {
-  deriveIssueInvestigationToolCallFromToolRun,
-  deriveIssuePlanToolCallFromToolRun,
-  getLatestIssuePlanText,
-  isIssueDrivenReadForDraft,
-} from "@/lib/agent/issue-flow";
-import {
-  deriveDirectToolPlan,
   deriveFocusedWebSearchQuery,
   deriveWebSearchQueryFromTask,
 } from "@/lib/agent/direct-tool-plans";
-import {
-  buildAnswerDirectlySystemPrompt,
-  buildAnswerWithToolResultsSystemPrompt,
-  buildFileModificationSystemPrompt,
-  buildPlannerSystemPrompt,
-} from "./prompts";
+import { buildPlannerSystemPrompt } from "./prompts";
 
 export type AgentContext = {
   cleanTask: string;
@@ -71,18 +51,6 @@ export type ThoughtResult = {
   toolCallId: string | null;
   toolInput: ToolExecutionInput | null;
   toolName: string | null;
-};
-
-type ThinkStrategyContext = {
-  context: AgentContext;
-  perception: PerceptionResult;
-  roundNumber: number;
-  toolRuns: ToolRun[];
-};
-
-type ThinkStrategy = {
-  match: (toolRuns: ToolRun[], goal: string) => boolean;
-  think: (context: ThinkStrategyContext) => Promise<ThoughtResult> | ThoughtResult;
 };
 
 function getRemainingToolCalls(toolRuns: ToolRun[]) {
@@ -113,7 +81,12 @@ function buildThoughtPlan(toolRuns: ToolRun[], remainingToolCalls: number) {
   ];
 }
 
-function normalizeToolInput(toolName: string, rawInput: ToolCallArgs, task: string) {
+function normalizeToolInput(
+  toolName: string,
+  rawInput: ToolCallArgs,
+  task: string,
+) {
+  if (toolName === "task_plan" || toolName === "finish_task") return rawInput;
   if (toolName === "list_files") {
     return {
       path: getStringArg(rawInput, "path") || ".",
@@ -210,7 +183,7 @@ function normalizeToolInput(toolName: string, rawInput: ToolCallArgs, task: stri
     const command = getStringArg(rawInput, "command").toLowerCase();
     const args = getStringArrayArg(rawInput, "args");
 
-    if (!command || args.length === 0) {
+    if (!command) {
       return null;
     }
 
@@ -224,7 +197,9 @@ function normalizeToolInput(toolName: string, rawInput: ToolCallArgs, task: stri
     const query = getStringArg(rawInput, "query");
 
     return {
-      query: deriveFocusedWebSearchQuery(deriveWebSearchQueryFromTask(query || task)),
+      query: deriveFocusedWebSearchQuery(
+        deriveWebSearchQueryFromTask(query || task),
+      ),
     };
   }
 
@@ -246,7 +221,10 @@ export function perceive(context: AgentContext): PerceptionResult {
   };
 }
 
-function buildMessagesWithToolRuns(baseMessages: LlmMessage[], toolRuns: ToolRun[]) {
+function buildMessagesWithToolRuns(
+  baseMessages: LlmMessage[],
+  toolRuns: ToolRun[],
+) {
   const toolMessages = toolRuns.flatMap((toolRun) => [
     toolRun.assistantMessage,
     {
@@ -257,13 +235,6 @@ function buildMessagesWithToolRuns(baseMessages: LlmMessage[], toolRuns: ToolRun
   ]);
 
   return [...baseMessages, ...toolMessages];
-}
-
-export function isFileModificationRequest(task: string) {
-  return (
-    /(modify|edit|update|change|append|replace|rewrite|revise|write|create|overwrite|delete|remove)/i.test(task) ||
-    /(修改|编辑|更新|改动|追加|替换|重写|删除|增加)/u.test(task)
-  );
 }
 
 export async function think(
@@ -283,26 +254,6 @@ export async function think(
         `- ${tool.name}: ${tool.description} Input form: ${JSON.stringify(tool.inputSchema)}`,
     )
     .join("\n");
-
-  const directToolPlan =
-    toolRuns.length === 0 ? deriveDirectToolPlan(perception.goal) : null;
-
-  if (directToolPlan) {
-    return {
-      assistantMessage: null,
-      directAnswer: null,
-      nextAction: `Use ${directToolPlan.name} with input ${formatToolExecutionInput(directToolPlan.input)}.`,
-      plan,
-      toolCallId: directToolPlan.id,
-      toolName: directToolPlan.name,
-      toolInput: directToolPlan.input,
-      step: createStep(
-        `think-${roundNumber}`,
-        "Think",
-        `Plan round ${roundNumber}: ${plan.join(" ")} Available tools: ${availableTools.map((tool) => tool.name).join(", ")}. Next action: Use ${directToolPlan.name} with input ${formatToolExecutionInput(directToolPlan.input)}.`,
-      ),
-    };
-  }
 
   const plannerReply = await callModelForToolDecision(
     context.model,
@@ -337,7 +288,7 @@ export async function think(
       ],
       toolRuns,
     ),
-    context.toolNames,
+    context.sessionContext.workflow?.plan ? context.toolNames : ["task_plan"],
   );
 
   const normalizedToolInput = plannerReply.toolCall
@@ -361,8 +312,8 @@ export async function think(
   const nextAction = plannedToolCall
     ? `Use ${plannedToolCall.name} with input ${formatToolExecutionInput(chosenToolInput ?? plannedToolCall.input)}.`
     : directAnswer
-      ? "Return the model's direct answer."
-      : "Fallback to a direct model answer because the tool decision was invalid.";
+      ? "Ask the model for a structured finish_task decision."
+      : "Ask the model to correct its missing or invalid tool decision.";
 
   return {
     assistantMessage: plannerReply.assistantMessage,
@@ -378,336 +329,4 @@ export async function think(
       `Plan round ${roundNumber}: ${plan.join(" ")} Available tools: ${availableTools.map((tool) => tool.name).join(", ")}. Next action: ${nextAction}`,
     ),
   };
-}
-
-async function thinkAfterReadForModification(
-  context: AgentContext,
-  goal: string,
-  readToolRun: ToolRun,
-  roundNumber: number,
-  issuePlanText?: string | null,
-): Promise<ThoughtResult> {
-  if (context.sessionContext.readOnly) {
-    return {
-      assistantMessage: null,
-      directAnswer:
-        "Current session is read-only, so I cannot prepare a file modification draft. Exit read-only mode before asking me to modify files.",
-      nextAction: "Return a read-only mode refusal instead of preparing a write draft.",
-      plan: [
-        "Review the existing file content.",
-        "Notice that this session is read-only.",
-        "Stop before preparing a write draft.",
-      ],
-      toolCallId: null,
-      toolName: null,
-      toolInput: null,
-      step: createStep(
-        `think-${roundNumber}`,
-        "Think",
-        "This session is read-only, so file modification tools are disabled.",
-      ),
-    };
-  }
-
-  const reply = await callModelForToolDecision(
-    context.model,
-    buildMessagesWithToolRuns(
-      [
-        {
-          role: "system",
-          content: buildFileModificationSystemPrompt(issuePlanText ?? null),
-        },
-        {
-          role: "user",
-          content: [
-            "Older conversation summary:",
-            formatConversationSummaryForModel(context.sessionContext),
-            "",
-            "Recent conversation:",
-            formatConversationForModel(context.recentConversation),
-            "",
-            "Session reference hints:",
-            formatSessionContextForModel(context.sessionContext),
-            "",
-            `Original task: ${goal}`,
-            `Target file path: ${readToolRun.inputText}`,
-            issuePlanText ? "" : null,
-            issuePlanText ? "Issue execution plan:" : null,
-            issuePlanText ?? null,
-          ].join("\n"),
-        },
-      ],
-      [readToolRun],
-    ),
-    ["replace_text", "write_file"],
-  );
-
-  const normalizedToolInput = reply.toolCall
-    ? normalizeToolInput(reply.toolCall.name, reply.toolCall.input, goal)
-    : null;
-  const plannedToolCall =
-    reply.toolCall && normalizedToolInput
-      ? {
-          id: reply.toolCall.id,
-          name: reply.toolCall.name,
-          input: normalizedToolInput,
-        }
-      : null;
-  const directAnswer = reply.content;
-  const nextAction = plannedToolCall
-    ? `Prepare a ${plannedToolCall.name} draft for "${readToolRun.inputText}".`
-    : directAnswer
-      ? "Ask the user for clarification before changing the file."
-      : "Fallback to the normal second planning step because the tool decision was invalid.";
-
-  return {
-    assistantMessage: reply.assistantMessage,
-    directAnswer,
-    nextAction,
-    plan: [
-      "Review the existing file content.",
-      "Apply the requested change safely.",
-      "Prepare a write draft for approval.",
-    ],
-    toolCallId: plannedToolCall?.id ?? null,
-    toolName: plannedToolCall?.name ?? null,
-    toolInput: plannedToolCall?.input ?? null,
-    step: createStep(
-      `think-${roundNumber}`,
-      "Think",
-      `Use the read_file result to prepare a safe modification draft for "${readToolRun.inputText}". Next action: ${nextAction}`,
-    ),
-  };
-}
-
-function thinkAfterIssueDetailForPlanning(
-  latestToolRun: ToolRun,
-  roundNumber: number,
-): ThoughtResult {
-  const plannedToolCall = deriveIssuePlanToolCallFromToolRun(latestToolRun);
-
-  if (!plannedToolCall) {
-    return {
-      assistantMessage: null,
-      directAnswer: null,
-      nextAction:
-        "Fallback to the normal planner because the issue detail did not contain enough structured content to build a plan safely.",
-      plan: [
-        "Review the issue detail that was just loaded.",
-        "Turn the issue into a code-change plan.",
-        "Return a concrete next step and validation path.",
-      ],
-      toolCallId: null,
-      toolName: null,
-      toolInput: null,
-      step: createStep(
-        `think-${roundNumber}`,
-        "Think",
-        "The latest git_inspect issue_detail result did not contain enough structured issue content, so fall back to the normal planner.",
-      ),
-    };
-  }
-
-  return {
-    assistantMessage: null,
-    directAnswer: null,
-    nextAction: `Use ${plannedToolCall.name} with input ${formatToolExecutionInput(plannedToolCall.input)}.`,
-    plan: [
-      "Review the structured issue detail that was just loaded.",
-      "Convert that issue detail into an executable code-change plan.",
-      "Return the plan before touching code.",
-    ],
-    toolCallId: plannedToolCall.id,
-    toolName: plannedToolCall.name,
-    toolInput: plannedToolCall.input,
-    step: createStep(
-      `think-${roundNumber}`,
-      "Think",
-      `Issue detail is already loaded, so convert it directly into an issue_plan with input ${formatToolExecutionInput(plannedToolCall.input)}.`,
-    ),
-  };
-}
-
-function thinkAfterIssuePlanForInvestigation(
-  latestToolRun: ToolRun,
-  roundNumber: number,
-): ThoughtResult {
-  const plannedToolCall = deriveIssueInvestigationToolCallFromToolRun(
-    latestToolRun,
-  );
-
-  if (!plannedToolCall) {
-    return {
-      assistantMessage: null,
-      directAnswer: null,
-      nextAction:
-        "Fallback to the normal planner because the issue plan did not contain a clear first investigation target.",
-      plan: [
-        "Review the code-change plan that was just created.",
-        "Choose the safest first investigation step.",
-        "Inspect code before editing anything.",
-      ],
-      toolCallId: null,
-      toolName: null,
-      toolInput: null,
-      step: createStep(
-        `think-${roundNumber}`,
-        "Think",
-        "The latest issue_plan did not include a clear file path or keyword, so fall back to the normal planner.",
-      ),
-    };
-  }
-
-  return {
-    assistantMessage: null,
-    directAnswer: null,
-    nextAction: `Use ${plannedToolCall.name} with input ${formatToolExecutionInput(plannedToolCall.input)}.`,
-    plan: [
-      "Review the code-change plan that was just created.",
-      "Use the plan to inspect one likely file or search one likely keyword.",
-      "Collect real code context before deciding the edit.",
-    ],
-    toolCallId: plannedToolCall.id,
-    toolName: plannedToolCall.name,
-    toolInput: plannedToolCall.input,
-    step: createStep(
-      `think-${roundNumber}`,
-      "Think",
-      `Issue plan is ready, so start investigation with ${plannedToolCall.name} using ${formatToolExecutionInput(plannedToolCall.input)}.`,
-    ),
-  };
-}
-
-export const thinkStrategies: ThinkStrategy[] = [
-  {
-    match: (toolRuns, goal) => {
-      const latestToolRun = toolRuns.at(-1);
-
-      return (
-        !!latestToolRun &&
-        latestToolRun.name === "read_file" &&
-        latestToolRun.result.ok &&
-        (isFileModificationRequest(goal) || isIssueDrivenReadForDraft(toolRuns))
-      );
-    },
-    think: ({
-      context,
-      perception,
-      roundNumber,
-      toolRuns,
-    }) => {
-      const latestToolRun = toolRuns.at(-1);
-
-      if (!latestToolRun) {
-        throw new Error("Expected latest tool run for read_file strategy.");
-      }
-
-      return thinkAfterReadForModification(
-        context,
-        perception.goal,
-        latestToolRun,
-        roundNumber,
-        getLatestIssuePlanText(toolRuns),
-      );
-    },
-  },
-  {
-    match: (toolRuns) => {
-      const latestToolRun = toolRuns.at(-1);
-
-      return !!latestToolRun && !!deriveIssuePlanToolCallFromToolRun(latestToolRun);
-    },
-    think: ({ roundNumber, toolRuns }) => {
-      const latestToolRun = toolRuns.at(-1);
-
-      if (!latestToolRun) {
-        throw new Error("Expected latest tool run for issue planning strategy.");
-      }
-
-      return thinkAfterIssueDetailForPlanning(latestToolRun, roundNumber);
-    },
-  },
-  {
-    match: (toolRuns) => {
-      const latestToolRun = toolRuns.at(-1);
-
-      return (
-        !!latestToolRun &&
-        !!deriveIssueInvestigationToolCallFromToolRun(latestToolRun)
-      );
-    },
-    think: ({ roundNumber, toolRuns }) => {
-      const latestToolRun = toolRuns.at(-1);
-
-      if (!latestToolRun) {
-        throw new Error("Expected latest tool run for issue investigation strategy.");
-      }
-
-      return thinkAfterIssuePlanForInvestigation(latestToolRun, roundNumber);
-    },
-  },
-];
-
-export async function answerWithToolResults(
-  context: AgentContext,
-  goal: string,
-  toolRuns: ToolRun[],
-) {
-  const response = await callModelForText(
-    context.model,
-    [
-      {
-        role: "system",
-        content: buildAnswerWithToolResultsSystemPrompt(),
-      },
-      {
-        role: "user",
-        content: [
-          "Older conversation summary:",
-          formatConversationSummaryForModel(context.sessionContext),
-          "",
-          "Recent conversation:",
-          formatConversationForModel(context.recentConversation),
-          "",
-          "Session reference hints:",
-          formatSessionContextForModel(context.sessionContext),
-          "",
-          `Original task: ${goal}`,
-          "",
-          "Completed tool results:",
-          formatToolRunsForModel(toolRuns),
-          "",
-          "Use only these completed results to answer the user directly.",
-        ].join("\n"),
-      },
-    ],
-  );
-
-  return response;
-}
-
-export async function answerDirectly(context: AgentContext, goal: string) {
-  const response = await callModelForText(context.model, [
-    {
-      role: "system",
-      content: buildAnswerDirectlySystemPrompt(context.toolNames),
-    },
-    {
-      role: "user",
-      content: [
-        "Older conversation summary:",
-        formatConversationSummaryForModel(context.sessionContext),
-        "",
-        "Recent conversation:",
-        formatConversationForModel(context.recentConversation),
-        "",
-        "Session reference hints:",
-        formatSessionContextForModel(context.sessionContext),
-        "",
-        `Current task: ${goal}`,
-      ].join("\n"),
-    },
-  ]);
-
-  return response;
 }

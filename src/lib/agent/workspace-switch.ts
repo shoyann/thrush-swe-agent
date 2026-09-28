@@ -33,7 +33,8 @@ function buildWorkspaceSwitchSteps(detail: string): AgentStep[] {
     {
       id: "act",
       title: "Act",
-      detail: "Reply in chat and update only this session state when confirmed.",
+      detail:
+        "Reply in chat and update only this session state when confirmed.",
       status: "done",
     },
   ];
@@ -90,7 +91,9 @@ function isReadOnlyExitTask(task: string) {
   const cleanTask = task.trim();
 
   return (
-    /^(exit|disable|turn off|leave)\s+read[\s-]*only(?:\s+mode)?$/i.test(cleanTask) ||
+    /^(exit|disable|turn off|leave)\s+read[\s-]*only(?:\s+mode)?$/i.test(
+      cleanTask,
+    ) ||
     /^normal\s+mode$/i.test(cleanTask) ||
     /^(\u9000\u51fa\u53ea\u8bfb|\u5173\u95ed\u53ea\u8bfb|\u5207\u56de\u6b63\u5e38\u6a21\u5f0f|\u6b63\u5e38\u6a21\u5f0f)$/.test(
       cleanTask,
@@ -106,7 +109,10 @@ function cleanExtractedPath(rawPath: string) {
   let cleanPath = stripWrappingQuotes(rawPath.trim());
 
   cleanPath = cleanPath
-    .replace(/\s*(?:\((?:read[\s-]*only|readonly)\)|read[\s-]*only|readonly)\s*$/i, "")
+    .replace(
+      /\s*(?:\((?:read[\s-]*only|readonly)\)|read[\s-]*only|readonly)\s*$/i,
+      "",
+    )
     .replace(
       /\s*(?:\uFF08\u53ea\u8bfb\uFF09|\(\u53ea\u8bfb\)|\u53ea\u8bfb\u6a21\u5f0f|\u53ea\u8bfb)\s*$/,
       "",
@@ -223,7 +229,9 @@ export function handleWorkspaceSwitchTask(input: {
         ...sessionContext,
         pendingWorkspaceSwitch: null,
       },
-      steps: buildWorkspaceSwitchSteps("The user cancelled the pending workspace switch."),
+      steps: buildWorkspaceSwitchSteps(
+        "The user cancelled the pending workspace switch.",
+      ),
     };
   }
 
@@ -251,7 +259,9 @@ export function handleWorkspaceSwitchTask(input: {
       workspacePath = normalizeWorkspacePath(pendingSwitch.workspacePath);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Workspace path validation failed.";
+        error instanceof Error
+          ? error.message
+          : "Workspace path validation failed.";
 
       return {
         handled: true,
@@ -266,7 +276,9 @@ export function handleWorkspaceSwitchTask(input: {
           ...sessionContext,
           pendingWorkspaceSwitch: null,
         },
-        steps: buildWorkspaceSwitchSteps("The pending workspace path failed validation."),
+        steps: buildWorkspaceSwitchSteps(
+          "The pending workspace path failed validation.",
+        ),
       };
     }
 
@@ -287,10 +299,15 @@ export function handleWorkspaceSwitchTask(input: {
         lastToolInput: null,
         lastToolName: null,
         pendingWorkspaceSwitch: null,
-        readOnly: pendingSwitch.readOnly ? true : sessionContext.readOnly === true,
+        readOnly: pendingSwitch.readOnly
+          ? true
+          : sessionContext.readOnly === true,
         workspacePathOverride: workspacePath,
+        workflow: null,
       },
-      steps: buildWorkspaceSwitchSteps("The workspace switch was confirmed and applied."),
+      steps: buildWorkspaceSwitchSteps(
+        "The workspace switch was confirmed and applied.",
+      ),
     };
   }
 
@@ -305,7 +322,9 @@ export function handleWorkspaceSwitchTask(input: {
     workspacePath = normalizeWorkspacePath(requestedPath);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Workspace path validation failed.";
+      error instanceof Error
+        ? error.message
+        : "Workspace path validation failed.";
 
     return {
       handled: true,
@@ -317,7 +336,9 @@ export function handleWorkspaceSwitchTask(input: {
         "Send a specific local project folder that already exists.",
       ].join("\n"),
       sessionContext,
-      steps: buildWorkspaceSwitchSteps("The requested workspace path failed validation."),
+      steps: buildWorkspaceSwitchSteps(
+        "The requested workspace path failed validation.",
+      ),
     };
   }
 

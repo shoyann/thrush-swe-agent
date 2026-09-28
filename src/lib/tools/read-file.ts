@@ -6,10 +6,6 @@ import type {
   ToolResult,
 } from "@/lib/tools/types";
 import { resolveWorkspacePath } from "@/lib/tools/workspace-path";
-import {
-  formatIssueInvestigationAnswer,
-  isIssueDrivenReadForDraft,
-} from "@/lib/agent/issue-flow";
 
 const DEFAULT_MAX_LINES = 500;
 const MAX_LINES_LIMIT = 1000;
@@ -139,7 +135,10 @@ function formatNumberedWindow(
   }
 
   const startIndex = parsed.startLine - 1;
-  const endIndexExclusive = Math.min(startIndex + parsed.maxLines, lines.length);
+  const endIndexExclusive = Math.min(
+    startIndex + parsed.maxLines,
+    lines.length,
+  );
   const lineNumberWidth = String(endIndexExclusive).length;
   const numberedLines = lines
     .slice(startIndex, endIndexExclusive)
@@ -203,7 +202,8 @@ export const readFileTool: AgentTool = {
     properties: {
       path: {
         type: "string",
-        description: "Required file path relative to the configured workspace root.",
+        description:
+          "Required file path relative to the configured workspace root.",
       },
       start_line: {
         type: "number",
@@ -219,14 +219,4 @@ export const readFileTool: AgentTool = {
     additionalProperties: false,
   },
   execute: executeReadFile,
-  onResult(goal, _result, toolRuns) {
-    const issueInvestigationAnswer = formatIssueInvestigationAnswer(goal, toolRuns);
-
-    return issueInvestigationAnswer && !isIssueDrivenReadForDraft(toolRuns)
-      ? {
-          type: "immediate",
-          message: issueInvestigationAnswer,
-        }
-      : null;
-  },
 };

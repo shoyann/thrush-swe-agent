@@ -1,15 +1,6 @@
-import type {
-  AgentTool,
-  ToolExecutionInput,
-  ToolRun as ToolRunBase,
-} from "@/lib/tools/types";
+import { positiveLimit } from "./workflow";
+import type { AgentTool, ToolRun as ToolRunBase } from "@/lib/tools/types";
 import type { LlmMessage } from "@/lib/agent/model-client";
-
-export type DirectToolPlan = {
-  id: string;
-  input: ToolExecutionInput;
-  name: string;
-};
 
 export type ToolRun = ToolRunBase & {
   assistantMessage: LlmMessage;
@@ -23,17 +14,16 @@ export type ToolRun = ToolRunBase & {
 export const APPROVE_WRITE_COMMAND = "APPROVE_WRITE";
 export const CANCEL_WRITE_COMMAND = "CANCEL_WRITE";
 
-function readMaxToolCalls() {
-  const rawValue = process.env.AGENT_MAX_TOOL_CALLS?.trim();
-  if (!rawValue || !/^\d+$/.test(rawValue)) {
-    return 4;
-  }
-
-  const parsedValue = Number(rawValue);
-  return Number.isSafeInteger(parsedValue) && parsedValue > 0 ? parsedValue : 4;
-}
-
-export const MAX_TOOL_CALLS = readMaxToolCalls();
+export const MAX_TOOL_CALLS = positiveLimit(
+  process.env.AGENT_MAX_TOOL_CALLS,
+  24,
+  100,
+);
+export const MAX_RUN_MS = positiveLimit(
+  process.env.AGENT_MAX_RUN_MS,
+  600000,
+  3600000,
+);
 
 export function createSyntheticToolCallId() {
   return `tool-call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

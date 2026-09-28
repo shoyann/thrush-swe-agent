@@ -120,6 +120,7 @@ export function ChatShell() {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, []);
+  const workflow = session?.sessionContext.workflow;
   const pending = session?.sessionContext.pendingDraft;
   const pendingSwitch = session?.sessionContext.pendingWorkspaceSwitch;
   const artifact = w.detail?.artifacts.find((a) => a.type === tab);
@@ -482,6 +483,68 @@ export function ChatShell() {
             {session?.sessionContext.readOnly ? " · Read only" : ""}
           </span>
         </div>
+        {w.mode === "assist" && workflow && (
+          <section
+            className="assist-progress"
+            aria-label="Task progress"
+            aria-live="polite"
+          >
+            <div className="assist-progress-heading">
+              <strong>
+                {
+                  {
+                    running:
+                      w.busy || session?.isRunning
+                        ? "Working"
+                        : "Interrupted · Resume available",
+                    paused: "Paused · Resume available",
+                    awaiting_approval: "Waiting for approval",
+                    blocked: "Needs attention",
+                    completed: "Completed",
+                    unverified: "Changes made · Not verified",
+                    cancelled: "Cancelled",
+                  }[workflow.status]
+                }
+              </strong>
+              {!w.busy &&
+                !session?.isRunning &&
+                ["paused", "blocked", "running", "unverified"].includes(
+                  workflow.status,
+                ) && (
+                  <button
+                    className="button"
+                    onClick={() => void w.send("继续", "Continue task")}
+                  >
+                    Continue task
+                  </button>
+                )}
+            </div>
+            <p>{workflow.objective}</p>
+            <details>
+              <summary>
+                Plan and verification · {workflow.changedFiles.length} files
+                changed
+              </summary>
+              <ol>
+                {workflow.plan?.steps.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+              <ul>
+                {workflow.plan?.checks.map((command) => (
+                  <li key={command}>
+                    {command}:{" "}
+                    {workflow.checks[command]?.ok &&
+                    workflow.checks[command]?.revision === workflow.revision
+                      ? "Passed"
+                      : "Pending / failed"}
+                  </li>
+                ))}
+              </ul>
+              {workflow.reason && <p>{workflow.reason}</p>}
+            </details>
+          </section>
+        )}
         {desktop?.phase === "error" && (
           <div role="alert" className="error service-error">
             {desktop.message}

@@ -1,6 +1,7 @@
 export type WriteFileDraft = {
   id: string;
   kind: "write_file";
+  baseHash?: string | null;
   path: string;
   content: string;
 };
@@ -9,6 +10,11 @@ export type ToolResult = {
   ok: boolean;
   content: string;
   draft?: WriteFileDraft;
+  command?: {
+    text: string;
+    exitCode: number | string | null;
+    verification?: boolean;
+  };
 };
 
 export type ToolInputValue =
@@ -54,19 +60,12 @@ export type ToolRun = {
   result: ToolResult;
 };
 
-export type ImmediateToolOutcome = {
-  message: string;
-  type: "immediate";
-};
-
 export type AgentTool = {
   description: string;
   inputSchema: ToolInputSchema;
-  execute: (input: ToolExecutionInput) => Promise<ToolResult>;
+  execute: (
+    input: ToolExecutionInput,
+    options?: { signal?: AbortSignal },
+  ) => Promise<ToolResult>;
   name: string;
-  onResult?: (
-    goal: string,
-    result: ToolResult,
-    toolRuns: ToolRun[],
-  ) => ImmediateToolOutcome | null;
 };

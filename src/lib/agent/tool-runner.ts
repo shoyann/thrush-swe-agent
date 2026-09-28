@@ -9,7 +9,7 @@ export async function runToolCall(
   toolInput: ToolExecutionInput,
   toolCallId: string,
   assistantMessage: LlmMessage,
-  options: { readOnly?: boolean } = {},
+  options: { readOnly?: boolean; signal?: AbortSignal } = {},
 ): Promise<ToolRun> {
   const tool = getTool(toolName);
   if (!tool) {
@@ -43,7 +43,15 @@ export async function runToolCall(
     };
   }
 
-  const result = await tool.execute(toolInput);
+  let result;
+  try {
+    result = await tool.execute(toolInput, { signal: options.signal });
+  } catch (error) {
+    result = {
+      ok: false,
+      content: error instanceof Error ? error.message : String(error),
+    };
+  }
   const finishedAt = Date.now();
 
   return {

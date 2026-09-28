@@ -28,10 +28,10 @@
 
 Thrush brings projects, conversations, file review, and coding agents into one desktop app. It has an English interface and runs in either native Windows or Ubuntu through Windows Subsystem for Linux (WSL).
 
-| Mode | How you work | How changes are handled |
-| --- | --- | --- |
-| **Assist** | Chat with the agent, inspect files, search code, and work through a task step by step. | File edits are prepared as drafts for you to approve before they are applied. |
-| **Auto** | Give mini-swe-agent a task, then review its report, diff, logs, and execution history. | Each run uses a separate Git working copy (a worktree). Docker is the default execution environment. |
+| Mode       | How you work                                                                           | How changes are handled                                                                              |
+| ---------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Assist** | Chat with the agent, inspect files, search code, and work through a task step by step. | File edits are prepared as drafts for you to approve before they are applied.                        |
+| **Auto**   | Give mini-swe-agent a task, then review its report, diff, logs, and execution history. | Each run uses a separate Git working copy (a worktree). Docker is the default execution environment. |
 
 Projects and conversations are saved locally. Model requests go to your configured provider. Settings lets you choose a provider, store encrypted API keys, prepare Agent and browser dependencies, and switch execution environments.
 
@@ -47,14 +47,14 @@ The installer includes Electron, Node, and the Windows and Ubuntu service bundle
 
 ### What you need
 
-| Component | When it is needed |
-| --- | --- |
-| Model provider account and API key | For model-backed tasks. DeepSeek, OpenAI, and an Anthropic-compatible gateway are configurable. |
-| Git in the selected environment | For project Git operations and Auto worktrees. Auto requires a project with no uncommitted changes. |
-| Docker Desktop | For the default Docker Auto environment. Enable Ubuntu under **Settings → Resources → WSL Integration** when using WSL. |
-| Ubuntu WSL | Only if you choose WSL execution. Thrush does not install or configure WSL. |
-| GitHub CLI (`gh`), signed in | Only when creating a draft pull request on GitHub. |
-| Project-specific tools | As required by the project and its execution environment. |
+| Component                          | When it is needed                                                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Model provider account and API key | For model-backed tasks. DeepSeek, OpenAI, and an Anthropic-compatible gateway are configurable.                         |
+| Git in the selected environment    | For project Git operations and Auto worktrees. Auto requires a project with no uncommitted changes.                     |
+| Docker Desktop                     | For the default Docker Auto environment. Enable Ubuntu under **Settings → Resources → WSL Integration** when using WSL. |
+| Ubuntu WSL                         | Only if you choose WSL execution. Thrush does not install or configure WSL.                                             |
+| GitHub CLI (`gh`), signed in       | Only when creating a draft pull request on GitHub.                                                                      |
+| Project-specific tools             | As required by the project and its execution environment.                                                               |
 
 The Anthropic option requires an OpenAI-compatible gateway URL. See the [desktop guide](docs/desktop.md) for environment setup and dependency details.
 
@@ -65,8 +65,10 @@ The Anthropic option requires an OpenAI-compatible gateway URL. See the [desktop
 Assist can inspect files, search code, read web pages, run allowlisted commands, and propose edits. Review each file draft and approve or discard it in the UI.
 
 ```text
-Inspect → Discuss → Draft → Review → Approve or discard
+Plan → Inspect → Draft → Approve → Verify → Fix if needed → Complete
 ```
+
+Assist saves the original task, plan and verification progress. Approving a draft continues the task; “continue” resumes a paused task. Tests do not end a coding task by themselves. See [Assist workflow](docs/assist-workflow.md) for completion rules and limits.
 
 File tools restrict paths to the active workspace. Allowlisted commands can still run project code; they are not a hardened sandbox.
 
@@ -88,11 +90,11 @@ The run leaves the files in your original project workspace unchanged. You can c
 
 Windows and WSL keep separate project histories and databases. Only one environment runs at a time; finish active tasks and dependency preparation before switching.
 
-| Environment | Default data location |
-| --- | --- |
-| Windows desktop | `%APPDATA%/Thrush/environments/native` |
-| WSL desktop | `~/.local/share/thrush/data` |
-| Source development | `data/` in the source checkout |
+| Environment        | Default data location                  |
+| ------------------ | -------------------------------------- |
+| Windows desktop    | `%APPDATA%/Thrush/environments/native` |
+| WSL desktop        | `~/.local/share/thrush/data`           |
+| Source development | `data/` in the source checkout         |
 
 Desktop credentials are encrypted in the app's settings store. History import accepts an old `data` folder into an empty destination; imported Auto runs are available for review only. See [data locations](docs/desktop.md#runtime-profiles-and-data) and [history import](docs/desktop.md#import-history) for details.
 
@@ -112,10 +114,10 @@ See the validation record for the complete test scope. Review generated changes 
 
 The browser workflow remains available for source development. The app uses Electron, Next.js, TypeScript, SQLite, and the bundled mini-swe-agent.
 
-| Guide | Contents |
-| --- | --- |
-| [Source development](docs/source-development.md) | Browser quickstart, model settings, environment variables, local runtime, and checks |
-| [Desktop guide](docs/desktop.md) | Installation, Windows/WSL setup, history import, desktop builds, and packaging |
-| [Validation record](docs/desktop-validation.md) | Recorded 2.1.1 results, known gaps, and reproduction commands |
-| [Auto technical design](docs/design/auto-mode-technical-design.md) | Original Auto architecture and implementation design |
-| [Architecture decisions](docs/adr) | Docker defaults, review before publishing, bundled Agent, and worker design |
+| Guide                                                              | Contents                                                                             |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| [Source development](docs/source-development.md)                   | Browser quickstart, model settings, environment variables, local runtime, and checks |
+| [Desktop guide](docs/desktop.md)                                   | Installation, Windows/WSL setup, history import, desktop builds, and packaging       |
+| [Validation record](docs/desktop-validation.md)                    | Recorded 2.1.1 results, known gaps, and reproduction commands                        |
+| [Auto technical design](docs/design/auto-mode-technical-design.md) | Original Auto architecture and implementation design                                 |
+| [Architecture decisions](docs/adr)                                 | Docker defaults, review before publishing, bundled Agent, and worker design          |

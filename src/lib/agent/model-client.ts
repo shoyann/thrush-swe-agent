@@ -1,3 +1,4 @@
+import { getExecutionSignal } from "./execution-context";
 import OpenAI from "openai";
 import type { ToolCallArgs } from "@/lib/tools/types";
 import { listTools } from "@/lib/tools/tool-registry";
@@ -132,6 +133,8 @@ function createModelClient(
 
   return new OpenAI({
     apiKey,
+    timeout: 90_000,
+    maxRetries: 1,
     ...(baseURL ? { baseURL } : {}),
   });
 }
@@ -204,11 +207,14 @@ export async function callModelForText(
 ): Promise<ModelTextMessage> {
   const provider = getConfiguredProvider();
   const extraBody = getProviderExtraBody(provider);
-  const response = await createModelClient(provider).chat.completions.create({
-    model,
-    messages,
-    ...(extraBody ?? {}),
-  } as never);
+  const response = await createModelClient(provider).chat.completions.create(
+    {
+      model,
+      messages,
+      ...(extraBody ?? {}),
+    } as never,
+    { signal: getExecutionSignal() },
+  );
 
   const message = response.choices[0]?.message;
   const content = getMessageTextContent(message?.content);
@@ -228,13 +234,19 @@ export async function callModelForToolDecision(
 ): Promise<ModelToolMessage> {
   const provider = getConfiguredProvider();
   const extraBody = getProviderExtraBody(provider);
-  const response = await createModelClient(provider).chat.completions.create({
-    model,
-    messages,
-    tools: buildModelTools(allowedToolNames),
-    tool_choice: "auto",
-    ...(extraBody ?? {}),
-  } as never);
+  const response = await createModelClient(provider).chat.completions.create(
+    {
+      model,
+      messages,
+      tools: buildModelTools(allowedToolNames),
+      tool_choice:
+        allowedToolNames?.length === 1 && allowedToolNames[0] === "task_plan"
+          ? "required"
+          : "auto",
+      ...(extraBody ?? {}),
+    } as never,
+    { signal: getExecutionSignal() },
+  );
 
   const message = response.choices[0]?.message;
   const firstToolCall = message?.tool_calls?.[0];
