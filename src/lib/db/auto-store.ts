@@ -457,22 +457,51 @@ export function finishAutoRun(input: {
 }
 
 export function requestAutoRunCancel(autoRunId: string, reason?: string) {
-  getDb()
-    .prepare(
-      `UPDATE auto_runs
-       SET cancel_requested = 1, updated_at = ?
-       WHERE id = ? AND status IN ('queued', 'preparing', 'running', 'reporting')`,
-    )
-    .run(now(), autoRunId);
+  const db = getDb();
+  const cancel = db.transaction(() => {
+    const run = getAutoRun(autoRunId);
+    if (!run || !activeStatuses.includes(run.status)) {
+      return run;
+    }
 
-  appendAutoEvent({
-    autoRunId,
-    data: { reason: reason ?? null },
-    message: "Cancellation requested.",
-    type: "cancel_requested",
+    if (!run.cancelRequested) {
+      db.prepare(
+        `UPDATE auto_runs
+         SET cancel_requested = 1, updated_at = ?
+         WHERE id = ?`,
+      ).run(now(), autoRunId);
+
+      appendAutoEvent({
+        autoRunId,
+        data: { reason: reason ?? null },
+        message: "Cancellation requested.",
+        type: "cancel_requested",
+      });
+    }
+
+    // The worker skips canceled queue entries, so no worker will finalize them.
+    // Claimed runs stay active until their worker has stopped the process.
+    if (run.status === "queued") {
+      const message = "The Auto Run was canceled before it started.";
+      markAutoRunStatus({
+        autoRunId,
+        failureCategory: "canceled",
+        failureMessage: message,
+        resultStatus: "canceled",
+        status: "canceled",
+      });
+      appendAutoEvent({
+        autoRunId,
+        data: { category: "canceled" },
+        message,
+        type: "canceled",
+      });
+    }
+
+    return getAutoRun(autoRunId);
   });
 
-  return getAutoRun(autoRunId);
+  return cancel.immediate();
 }
 
 export function appendAutoEvent(input: {
