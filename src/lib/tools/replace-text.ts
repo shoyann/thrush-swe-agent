@@ -184,7 +184,7 @@ async function executeReplaceText(
 
     const updatedContent = originalContent.replace(
       parsed.oldText,
-      parsed.newText,
+      () => parsed.newText,
     );
     const relativePath =
       path.relative(getWorkspaceRoot(), targetPath).replace(/\\/g, "/") || ".";
