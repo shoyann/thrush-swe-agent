@@ -1,6 +1,6 @@
 import { runtimePaths } from "../runtime/paths";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 const DEFAULT_WORKSPACE_ROOT = runtimePaths().workspace;
@@ -69,17 +69,27 @@ export function resolveWorkspacePath(input = ".") {
     throw new Error("The requested path is outside the configured workspace.");
   }
 
-  if (existsSync(targetPath)) {
-    const realWorkspaceRoot = realpathSync.native(workspaceRoot);
-    const realTargetPath = realpathSync.native(targetPath);
-    const realRelativePath = path.relative(realWorkspaceRoot, realTargetPath);
-
-    if (
-      realRelativePath.startsWith("..") ||
-      path.isAbsolute(realRelativePath)
-    ) {
-      throw new Error("The requested path resolves outside the configured workspace.");
+  // New files still need a realpath check: an existing parent may be a
+  // symlink to another directory. lstat also stops at dangling symlinks so
+  // realpath rejects them instead of treating them as missing directories.
+  let existingPath = targetPath;
+  while (!lstatSync(existingPath, { throwIfNoEntry: false })) {
+    const parentPath = path.dirname(existingPath);
+    if (parentPath === existingPath) {
+      throw new Error("The requested path could not be resolved.");
     }
+    existingPath = parentPath;
+  }
+
+  const realWorkspaceRoot = realpathSync.native(workspaceRoot);
+  const realExistingPath = realpathSync.native(existingPath);
+  const realRelativePath = path.relative(realWorkspaceRoot, realExistingPath);
+
+  if (
+    realRelativePath.startsWith("..") ||
+    path.isAbsolute(realRelativePath)
+  ) {
+    throw new Error("The requested path resolves outside the configured workspace.");
   }
 
   return targetPath;
